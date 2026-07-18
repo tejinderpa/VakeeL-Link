@@ -26,7 +26,7 @@ app.add_middleware(
 # ── Global error handlers (must be registered before routers) ────────────────
 register_error_handlers(app)
 
-@app.get("/health", tags=["system"])
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["system"])
 def health_check():
     return {"status": "ok", "service": settings.PROJECT_NAME}
 
@@ -122,8 +122,9 @@ def health_rag():
     return report
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
+    # HEAD used by uptime bots / CDNs — avoid noisy 405 Method Not Allowed
     return {"message": f"Welcome to the {settings.PROJECT_NAME}"}
 
 # Import-guarded router mounts

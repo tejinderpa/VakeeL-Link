@@ -102,11 +102,25 @@ ON public.profiles
 FOR SELECT
 USING (auth.uid() = id);
 
+-- Role lookup must not re-enter profiles RLS (avoids 42P17 infinite recursion).
+CREATE OR REPLACE FUNCTION public.current_user_role()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT role::text FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+$$;
+
+REVOKE ALL ON FUNCTION public.current_user_role() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.current_user_role() TO authenticated, anon, service_role;
+
 DROP POLICY IF EXISTS profiles_select_admin ON public.profiles;
 CREATE POLICY profiles_select_admin
 ON public.profiles
 FOR SELECT
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+USING (public.current_user_role() = 'admin');
 
 DROP POLICY IF EXISTS profiles_update_own ON public.profiles;
 CREATE POLICY profiles_update_own
@@ -145,7 +159,7 @@ DROP POLICY IF EXISTS query_history_select_admin ON public.query_history;
 CREATE POLICY query_history_select_admin
 ON public.query_history
 FOR SELECT
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+USING (public.current_user_role() = 'admin');
 
 DROP POLICY IF EXISTS query_history_insert_own ON public.query_history;
 CREATE POLICY query_history_insert_own
@@ -201,7 +215,7 @@ DROP POLICY IF EXISTS consultations_select_admin ON public.consultations;
 CREATE POLICY consultations_select_admin
 ON public.consultations
 FOR SELECT
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+USING (public.current_user_role() = 'admin');
 
 DROP TRIGGER IF EXISTS set_consultations_updated_at ON public.consultations;
 CREATE TRIGGER set_consultations_updated_at
@@ -236,7 +250,7 @@ DROP POLICY IF EXISTS ai_citations_select_admin ON public.ai_citations;
 CREATE POLICY ai_citations_select_admin
 ON public.ai_citations
 FOR SELECT
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+USING (public.current_user_role() = 'admin');
 
 -- Client ↔ lawyer consultation chat (used by WS /api/v1/chat/ws/{consultation_id})
 CREATE TABLE IF NOT EXISTS public.chat_messages (
@@ -340,7 +354,7 @@ DROP POLICY IF EXISTS archived_chats_select_admin ON public.archived_chats;
 CREATE POLICY archived_chats_select_admin
 ON public.archived_chats
 FOR SELECT
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+USING (public.current_user_role() = 'admin');
 
 CREATE TABLE IF NOT EXISTS public.archived_documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -376,7 +390,7 @@ DROP POLICY IF EXISTS archived_documents_select_admin ON public.archived_documen
 CREATE POLICY archived_documents_select_admin
 ON public.archived_documents
 FOR SELECT
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+USING (public.current_user_role() = 'admin');
 
 CREATE TABLE IF NOT EXISTS public.reported_issues (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -407,7 +421,7 @@ DROP POLICY IF EXISTS reported_issues_select_admin ON public.reported_issues;
 CREATE POLICY reported_issues_select_admin
 ON public.reported_issues
 FOR SELECT
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+USING (public.current_user_role() = 'admin');
 
 DROP TRIGGER IF EXISTS set_reported_issues_updated_at ON public.reported_issues;
 CREATE TRIGGER set_reported_issues_updated_at
@@ -441,7 +455,7 @@ DROP POLICY IF EXISTS notifications_select_admin ON public.notifications;
 CREATE POLICY notifications_select_admin
 ON public.notifications
 FOR SELECT
-USING ((SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin');
+USING (public.current_user_role() = 'admin');
 
 -- Note: You might want to enable Row Level Security and add policies depending on your overall setup.
 -- ALTER TABLE public.lawyers ENABLE ROW LEVEL SECURITY;

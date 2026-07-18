@@ -29,6 +29,18 @@ export function networkErrorMessage(err, base = API_BASE_URL) {
   if (!isNetwork) return raw || 'Request failed';
 
   const target = base || '(same origin / Vite proxy → port 8000)';
+  const isRemote = /^https?:\/\//i.test(String(target)) && !/127\.0\.0\.1|localhost/i.test(String(target));
+
+  // Production / hosted API — do not tell users to start uvicorn locally.
+  if (isRemote || import.meta.env.PROD) {
+    return (
+      `Cannot reach the API at ${target}. ` +
+      'The server may be waking up (free tier cold start — wait ~30–60s and retry), ' +
+      'or CORS may block this site. On Render, set CORS_ORIGINS to your Vercel URL ' +
+      '(https, no trailing slash), then retry.'
+    );
+  }
+
   return (
     `Cannot reach the API at ${target}. ` +
     'Start the backend on port 8000 (from Vakeel-link-main/backend: ' +
@@ -64,11 +76,25 @@ async function parseError(res) {
   let detail = res.statusText || 'Request failed';
   try {
     const body = await res.json();
-    if (typeof body?.detail === 'string') detail = body.detail;
-    else if (Array.isArray(body?.detail)) detail = body.detail.map((d) => d.msg || JSON.stringify(d)).join(', ');
-    else if (body?.message) detail = body.message;
+    // Prefer explicit API envelope fields (error_handler uses message + detail)
+    if (typeof body?.message === 'string' && body.message && body.error) {
+      detail = body.detail && typeof body.detail === 'string'
+        ? `${body.message}: ${body.detail}`
+        : body.message;
+    } else if (typeof body?.detail === 'string') {
+      detail = body.detail;
+    } else if (Array.isArray(body?.detail)) {
+      detail = body.detail.map((d) => d.msg || JSON.stringify(d)).join(', ');
+    } else if (body?.message) {
+      detail = body.message;
+    }
   } catch {
     // ignore
+  }
+  if (res.status === 404) {
+    detail = detail || 'Not found';
+  } else if (res.status >= 500) {
+    detail = detail || 'Server error — please try again shortly';
   }
   const err = new Error(detail);
   err.status = res.status;

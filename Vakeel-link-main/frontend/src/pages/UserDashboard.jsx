@@ -85,6 +85,7 @@ export default function UserDashboard() {
   const [consultations, setConsultations] = useState([]);
   const [aiCount, setAiCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadWarning, setLoadWarning] = useState('');
   const [headerQuery, setHeaderQuery] = useState('');
 
   const todayLabel = new Date().toLocaleDateString('en-IN', {
@@ -96,6 +97,7 @@ export default function UserDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadWarning('');
     let apiRows = [];
     let runs = 3; // baseline demo AI activity count
     try {
@@ -106,6 +108,12 @@ export default function UserDashboard() {
         ]);
         if (consRes.status === 'fulfilled') {
           apiRows = consRes.value?.data || [];
+        } else if (consRes.status === 'rejected') {
+          // Keep dashboard usable; surface a soft banner instead of a crash
+          setLoadWarning(
+            consRes.reason?.message ||
+              'Some live data could not load. Showing local/demo activity.'
+          );
         }
         if (casesRes.status === 'fulfilled') {
           runs = Math.max(
@@ -113,6 +121,7 @@ export default function UserDashboard() {
             Number(casesRes.value?.total_count || (casesRes.value?.data || []).length || 0)
           );
         }
+        // cases failures are non-fatal (backend may return empty list)
       }
     } finally {
       setConsultations(mergeClientConsultations(apiRows).map(mapConsultationForClient));
@@ -178,6 +187,19 @@ export default function UserDashboard() {
       <UserSidebar />
 
       <main className="min-h-screen min-w-0 md:pl-[260px] lg:pl-[280px]">
+        {loadWarning ? (
+          <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 md:px-6">
+            <span className="font-semibold">Partial data: </span>
+            {loadWarning}
+            <button
+              type="button"
+              onClick={() => load()}
+              className="ml-3 font-semibold text-amber-800 underline underline-offset-2 hover:text-amber-950"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 shadow-sm backdrop-blur md:px-6">
           <div className="relative ml-12 w-full max-w-md md:ml-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />

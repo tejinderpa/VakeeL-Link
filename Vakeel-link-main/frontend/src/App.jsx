@@ -16,7 +16,9 @@ import Statutes from './pages/Statutes';
 import Archive from './pages/Archive';
 import Consultations from './pages/Consultations';
 import Profile from './pages/Profile';
+import NotFound from './pages/NotFound';
 import ScrollToTop from './components/ScrollToTop.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import './App.css';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -128,7 +130,8 @@ function AppContent() {
           } />
           
           <Route path="/pricing" element={<div className="min-h-screen flex items-center justify-center text-slate-700">Pricing Page (Coming Soon)</div>} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Unknown routes → branded 404 (do not silently bounce home) */}
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
 
@@ -151,12 +154,16 @@ function AppContent() {
 
 function App() {
   return (
-    <Router>
-      <ScrollToTop />
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </Router>
+    <ErrorBoundary>
+      <Router>
+        <ScrollToTop />
+        <AuthProvider>
+          <ErrorBoundary>
+            <AppContent />
+          </ErrorBoundary>
+        </AuthProvider>
+      </Router>
+    </ErrorBoundary>
   );
 }
 
