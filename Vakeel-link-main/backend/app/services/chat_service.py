@@ -43,24 +43,25 @@ class ChatService:
                 # Optionally update the session's updated_at timestamp or domain
                 self.client.table('chat_sessions').update({"domain_identified": domain_identified}).eq("id", session_id).execute()
 
-            # 3. Save User Message
+            # 3. Save messages into ai_chat_messages (NOT consultation chat_messages)
             user_msg_data = {
                 "session_id": session_id,
                 "role": "user",
                 "content": query,
                 "citations": None
             }
-            self.client.table('chat_messages').insert(user_msg_data).execute()
-
-            # 4. Save Assistant Message (with JSONB citations)
-            # Storing citations maps to the JSONB column beautifully.
             assistant_msg_data = {
                 "session_id": session_id,
                 "role": "assistant",
                 "content": answer,
                 "citations": citations
             }
-            self.client.table('chat_messages').insert(assistant_msg_data).execute()
+            try:
+                self.client.table('ai_chat_messages').insert(user_msg_data).execute()
+                self.client.table('ai_chat_messages').insert(assistant_msg_data).execute()
+            except Exception:
+                # Fallback if ai_chat_messages table is not migrated yet — skip persistence.
+                pass
 
             return {
                 "session_id": session_id,
@@ -71,25 +72,33 @@ class ChatService:
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
-            
+
     def get_user_sessions(self, user_id: str):
-        """Fetch all chat sessions for a user."""
+        """Fetch all AI chat sessions for a user."""
         try:
             response = self.client.table('chat_sessions').select('*').eq('user_id', user_id).order('updated_at', desc=True).execute()
             return response.data
         except Exception as e:
              raise HTTPException(status_code=500, detail=str(e))
-        
+
     def get_session_messages(self, session_id: str, user_id: str):
-        """Fetch all messages within a specific session, validating ownership."""
+        """Fetch all AI messages within a specific session, validating ownership."""
         try:
-            # Verify ownership
             session_check = self.client.table('chat_sessions').select('user_id').eq('id', session_id).single().execute()
             if not session_check.data or session_check.data['user_id'] != user_id:
                 raise HTTPException(status_code=403, detail="Unauthorized access to chat session.")
-                
-            response = self.client.table('chat_messages').select('*').eq('session_id', session_id).order('created_at', desc=False).execute()
-            return response.data
+
+            try:
+                response = (
+                    self.client.table('ai_chat_messages')
+                    .select('*')
+                    .eq('session_id', session_id)
+                    .order('created_at', desc=False)
+                    .execute()
+                )
+                return response.data
+            except Exception:
+                return []
         except HTTPException:
             raise
         except Exception as e:

@@ -1,90 +1,61 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CalendarDays, CalendarCheck2, CheckCircle2, CircleHelp, Clock3, Download, FileText, Filter, FolderOpen, LayoutDashboard, LineChart, LogOut, Mail, MessageCircle, MessageSquare, Plus, Scale, Search, Settings, ShieldAlert, Star, UserCircle2, Video, XCircle, Zap, Bot, X, Send, ArrowRight, Sparkles, BookOpen } from 'lucide-react';
+import { Bell, CalendarDays, CalendarCheck2, CheckCircle2, CircleHelp, Clock3, Download, FileText, Filter, FolderOpen, Folder, LayoutDashboard, LineChart, LogOut, Mail, MessageCircle, Plus, Scale, Search, Settings, ShieldAlert, UserCircle2, Video, XCircle, Zap, Bot, X, Send, BookOpen, Loader2, Trash2, Upload, ChevronRight, ArrowLeft, Briefcase, Shield, Home } from 'lucide-react';
 import useAuth from '../components/useAuth';
+import ConsultationChat from '../components/ConsultationChat';
+import { apiGet, apiPost, apiPut, hasRealToken } from '../utils/api';
+import {
+  formatRelativeTime,
+  mapConsultationForLawyer,
+  normalizeStatus,
+  statusLabel,
+} from '../utils/consultationStatus';
+import {
+  addLawyerDocument,
+  buildAnalytics,
+  deleteLawyerCase,
+  deleteLawyerDocument,
+  ensureDemoConsultations,
+  formatBytes,
+  getDocumentFoldersWithCounts,
+  listDocumentsInFolder,
+  listLawyerCases,
+  listLawyerDocuments,
+  listLocalConsultations,
+  saveLawyerCase,
+  updateLocalConsultationStatus,
+} from '../utils/lawyerWorkspace';
+import { formatReadableText } from '../utils/chatStore';
+import { askLegalAi, buildComparisonPrompt, parseComparisonMemo } from '../utils/legalAi';
+import {
+  countUnreadForLawyer,
+  markConsultationRead,
+  mergeLawyerConsultationSources,
+  onConsultationsUpdated,
+  updateSharedConsultationStatus,
+} from '../utils/consultationBridge';
 
-const RECENT_ACTIVITY = [
-  {
-    id: 1,
-    title: 'Accepted request from Ravi Kumar',
-    detail: 'Family Law • Case ID #9921',
-    timeAgo: '2h ago',
-    type: 'success',
-  },
-  {
-    id: 2,
-    title: 'Consultation completed with Sneha Kapoor',
-    detail: 'Corporate Law • 45 mins session recorded',
-    timeAgo: '5h ago',
-    type: 'video',
-  },
-  {
-    id: 3,
-    title: 'New message from Client #3821',
-    detail: 'Criminal Law • Urgent inquiry regarding bail hearing',
-    timeAgo: '1d ago',
-    type: 'message',
-  },
-  {
-    id: 4,
-    title: 'Profile verified by Bar Council',
-    detail: 'System • Annual credential audit complete',
-    timeAgo: '2d ago',
-    type: 'verify',
-  },
+const CASE_TYPES = [
+  { id: 'family', label: 'Family', hint: 'Divorce, custody, maintenance, domestic issues' },
+  { id: 'labour', label: 'Labour', hint: 'Jobs, salary, PF, wrongful termination' },
+  { id: 'criminal', label: 'Criminal', hint: 'FIR, bail, police complaints, IPC offences' },
+  { id: 'property', label: 'Property', hint: 'Land, rent, partition, title disputes' },
+  { id: 'consumer', label: 'Consumer', hint: 'Bank, product, service complaints' },
+  { id: 'general', label: 'General', hint: 'Not sure — general civil advice' },
 ];
 
-const TODAY_SCHEDULE = [
-  {
-    id: 1,
-    time: '14:00 - 14:45',
-    title: 'Client Onboarding: Amit V.',
-    detail: 'Video Call • Property Dispute',
-    active: true,
-  },
-  {
-    id: 2,
-    time: '16:30 - 17:00',
-    title: 'Document Review',
-    detail: 'Internal • Kapoor & Sons File',
-    active: false,
-  },
-];
-
-const CONSULTATION_REQUESTS = [
-  {
-    id: 'req-3821',
-    clientName: 'Client #3821',
-    category: 'Family Law',
-    submittedAt: '2 hours ago',
-    message: 'My husband has been denying me maintenance for 3 months now. I need legal advice on how to file for immediate relief.',
-    status: 'pending',
-    avatar: 'https://i.pravatar.cc/80?img=12',
-  },
-  {
-    id: 'req-4102',
-    clientName: 'Client #4102',
-    category: 'Criminal Law',
-    submittedAt: '5 hours ago',
-    message: 'I received a notice regarding an alleged white-collar violation at my firm. I need an urgent consultation.',
-    status: 'accepted',
-    avatar: 'https://i.pravatar.cc/80?img=47',
-  },
-  {
-    id: 'req-2933',
-    clientName: 'Client #2933',
-    category: 'Consumer Rights',
-    submittedAt: '1 day ago',
-    message: 'An e-commerce giant is refusing to refund my damaged high-value electronic purchase. I have all the proofs available.',
-    status: 'pending',
-    avatar: 'https://i.pravatar.cc/80?img=32',
-  },
-];
-
-function SideNav({ activeSection, onSectionChange, onLogout, onOpenNewCase, displayName }) {
+function SideNav({
+  activeSection,
+  onSectionChange,
+  onLogout,
+  onOpenNewCase,
+  displayName,
+  subtitle,
+  unreadConsultations = 0,
+}) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'consultations', label: 'Consultations', icon: CalendarDays },
+    { id: 'consultations', label: 'Consultations', icon: CalendarDays, badge: unreadConsultations },
     { id: 'case-files', label: 'Case Files', icon: FolderOpen },
     { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'case-comparisons', label: 'Case Comparisons', icon: BookOpen },
@@ -99,54 +70,84 @@ function SideNav({ activeSection, onSectionChange, onLogout, onOpenNewCase, disp
     .join('');
 
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-full w-[280px] flex-col border-r border-slate-800 bg-[#0f2d5e] text-sm text-slate-200 shadow-sm">
-      <div className="p-6">
+    <aside className="fixed left-0 top-0 z-40 flex h-full w-[260px] flex-col border-r border-white/10 bg-[#0f2d5e] text-sm text-slate-200 shadow-xl lg:w-[280px]">
+      <div className="shrink-0 border-b border-white/10 px-5 py-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600/20 text-white">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/25 text-white ring-1 ring-white/10">
             <Scale size={20} />
           </div>
-          <div>
-            <div className="text-xl font-black tracking-tight text-white">LexPrecise</div>
-            <div className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-blue-400">Legal Management</div>
+          <div className="min-w-0">
+            <div className="truncate text-lg font-black tracking-tight text-white">
+              Vakeel<span className="text-blue-300">Link</span>
+            </div>
+            <div className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-blue-300/80">Advocate portal</div>
           </div>
         </div>
       </div>
 
-      <nav className="mt-4 flex-1 space-y-1 px-2">
-        {navItems.map(({ id, label, icon: Icon }) => {
+      <nav className="mt-3 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
+        {navItems.map(({ id, label, icon: Icon, badge }) => {
           const isActive = activeSection === id;
+          const hasBadge = Number(badge) > 0;
           return (
             <button
               key={id}
+              type="button"
               onClick={() => onSectionChange(id)}
-              className={`flex w-full items-center gap-4 rounded-lg px-4 py-3 text-left transition-all duration-150 ${
+              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-150 ${
                 isActive
-                  ? 'border-l-4 border-blue-500 bg-blue-600/10 text-white'
-                  : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'
+                  ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10'
+                  : hasBadge
+                    ? 'bg-amber-500/10 text-white'
+                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
               }`}
             >
-              <Icon size={18} />
-              <span className="font-semibold">{label}</span>
+              <Icon size={18} className={isActive || hasBadge ? 'text-blue-300' : 'text-slate-400'} />
+              <span className={`flex-1 ${hasBadge ? 'font-black' : 'font-semibold'}`}>{label}</span>
+              {hasBadge ? (
+                <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-black text-slate-900">
+                  {badge} new
+                </span>
+              ) : null}
             </button>
           );
         })}
       </nav>
 
-      <div className="mt-auto border-t border-slate-800 p-6">
-        <button onClick={onOpenNewCase} className="mb-4 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 text-sm font-medium text-white transition-colors hover:bg-blue-700">
+      <div className="shrink-0 border-t border-white/10 p-4">
+        <button
+          type="button"
+          onClick={onOpenNewCase}
+          className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-900/30 transition-colors hover:bg-blue-500"
+        >
           <Plus size={16} />
           New Case
         </button>
+        <div className="mb-2 flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5 ring-1 ring-white/10">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-500/40 text-xs font-bold text-white">
+            {initials || 'LP'}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-white" title={displayName || 'Advocate'}>
+              {displayName || 'Advocate'}
+            </p>
+            <p className="truncate text-[10px] uppercase tracking-wider text-slate-400">
+              {subtitle || 'Lawyer portal'}
+            </p>
+          </div>
+        </div>
         <button
+          type="button"
           onClick={() => onSectionChange('profile')}
-          className="mb-1 flex w-full items-center gap-3 px-4 py-3 text-left text-slate-300 transition-all duration-150 hover:bg-white/5 hover:text-white"
+          className="mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-slate-300 transition-all hover:bg-white/5 hover:text-white"
         >
           <UserCircle2 size={18} />
           Profile
         </button>
         <button
+          type="button"
           onClick={onLogout}
-          className="flex w-full items-center gap-3 px-4 py-3 text-left text-slate-300 transition-all duration-150 hover:bg-white/5 hover:text-white"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-slate-300 transition-all hover:bg-white/5 hover:text-white"
         >
           <LogOut size={18} />
           Logout
@@ -202,47 +203,147 @@ function RejectedScreen({ reason, onReapply }) {
   );
 }
 
-function NewCaseModal({ onClose }) {
+function NewCaseModal({ onClose, onGoToConsultations, onGoToCaseFiles, onSaved }) {
   const [caseText, setCaseText] = useState('');
   const [title, setTitle] = useState('');
+  const [caseType, setCaseType] = useState('general');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const selectedType = CASE_TYPES.find((t) => t.id === caseType) || CASE_TYPES[CASE_TYPES.length - 1];
+  const previewParagraphs = formatReadableText(caseText);
+
+  const handleSave = () => {
+    if (!title.trim() || !caseText.trim()) {
+      setError('Title and case description are required.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const categoryLabel = `${selectedType.label} Law`;
+      const record = saveLawyerCase({
+        title: title.trim(),
+        facts: caseText.trim(),
+        category: categoryLabel,
+        clientName: title.trim(),
+        caseType: caseType,
+      });
+      if (onSaved) onSaved(record);
+      onClose();
+      if (onGoToCaseFiles) onGoToCaseFiles();
+    } catch (err) {
+      setError(err.message || 'Could not save case');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm sm:p-6">
-      <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-300">
-        <div className="flex items-center justify-between border-b border-slate-100 bg-white px-6 py-4">
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/50 p-0 backdrop-blur-sm sm:items-center sm:p-6">
+      <div className="flex max-h-[min(100dvh,900px)] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white px-5 py-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
               <Scale size={20} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900">New Case Workspace</h2>
-              <p className="text-xs text-slate-500">Draft your case facts</p>
+              <h2 className="text-lg font-bold text-slate-900">New Case</h2>
+              <p className="text-xs text-slate-500">Issue type, title, and readable facts</p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
             <X size={20} />
           </button>
         </div>
-        <div className="p-6 md:p-8">
-          <div className="space-y-5">
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Case Title / Client</label>
-              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Estate of V. Sharma" className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Case Facts & Core Issues</label>
-              <textarea 
-                value={caseText}
-                onChange={(e) => setCaseText(e.target.value)}
-                rows={8} 
-                placeholder="Describe the situation, claims, and context..." 
-                className="w-full resize-none rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-medium leading-relaxed text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-              />
+        <div className="flex-1 space-y-5 overflow-y-auto p-5 sm:p-6">
+          <div>
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Case title / client</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Mehta — mutual consent divorce"
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">Case type (issue area)</label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {CASE_TYPES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setCaseType(t.id)}
+                  className={`rounded-xl border px-3 py-2.5 text-left transition-all ${
+                    caseType === t.id
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-500/20'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <span className="block text-sm font-bold text-slate-900">{t.label}</span>
+                  <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">{t.hint}</span>
+                </button>
+              ))}
             </div>
           </div>
-          <div className="mt-8 flex justify-end gap-3">
-            <button onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-            <button onClick={onClose} disabled={!title || !caseText} className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">Create Case</button>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+              Case description
+            </label>
+            <p className="mb-2 text-xs text-slate-500">
+              Write in short paragraphs. Press Enter twice between points so it stays readable in Case Files.
+            </p>
+            <textarea
+              value={caseText}
+              onChange={(e) => setCaseText(e.target.value)}
+              rows={7}
+              placeholder={'What happened?\n\nWhat does the client want?\n\nAny dates, documents, or court already involved?'}
+              className="w-full resize-y rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium leading-relaxed text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+            />
+          </div>
+
+          {previewParagraphs.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Readable preview</p>
+              <div className="space-y-3">
+                {previewParagraphs.map((para, i) => (
+                  <p key={i} className="text-sm leading-relaxed text-slate-700">
+                    {para}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
+        </div>
+        <div className="shrink-0 border-t border-slate-100 bg-white px-5 py-4 sm:px-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button type="button" onClick={onClose} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                if (onGoToConsultations) onGoToConsultations();
+              }}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Open consultations
+            </button>
+            <button
+              type="button"
+              disabled={saving || !title.trim() || !caseText.trim()}
+              onClick={handleSave}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+              Save to Case Files
+            </button>
           </div>
         </div>
       </div>
@@ -250,339 +351,1053 @@ function NewCaseModal({ onClose }) {
   );
 }
 
-function CaseComparisonsSection({ 
-  sourceFilter, setSourceFilter, 
-  searchQuery, setSearchQuery, 
-  precedents, setPrecedents, 
-  aiMessages, setAiMessages, 
-  aiInput, setAiInput,
-  isSearching, setIsSearching
-}) {
-  const [expandedCases, setExpandedCases] = useState([]);
+function CaseComparisonsSection({ localCases = [], consultations = [], onToast }) {
+  const libraryMatters = useMemo(() => {
+    const fromFiles = (localCases || []).map((c) => ({
+      id: String(c.id),
+      title: c.title || c.clientName || 'Untitled matter',
+      clientName: c.clientName || c.title || 'Client',
+      category: c.category || 'General Law',
+      caseType: c.caseType || null,
+      status: c.status || 'pending',
+      facts: c.facts || '',
+      source: 'library',
+    }));
+    const fromConsults = (consultations || []).map((c) => ({
+      id: `consult_${c.id}`,
+      title: `${c.clientName || 'Client'} — consultation`,
+      clientName: c.clientName || 'Client',
+      category: c.category || 'General Law',
+      caseType: null,
+      status: c.status || 'pending',
+      facts: c.message || '',
+      source: 'consultation',
+    }));
+    return [...fromFiles, ...fromConsults];
+  }, [localCases, consultations]);
 
-  const toggleDetails = (id) => {
-    setExpandedCases(prev => prev.includes(id) ? prev.filter(cId => cId !== id) : [...prev, id]);
-  };
+  const [sourceFilter, setSourceFilter] = useState('all'); // all | library | rag
+  const [listQuery, setListQuery] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [ragItems, setRagItems] = useState([]);
+  const [focus, setFocus] = useState('');
+  const [running, setRunning] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState('');
+  const [meta, setMeta] = useState(null); // provider / confidence
+  const [memo, setMemo] = useState(null); // parsed sections or raw
+  const [rawMemo, setRawMemo] = useState('');
+  const [followUp, setFollowUp] = useState('');
+  const [followBusy, setFollowBusy] = useState(false);
+  const [thread, setThread] = useState([]);
 
-  const handleAddToCompare = async (precedent) => {
-    const userMsg = { role: 'user', text: `Please add "${precedent.title}" to our comparison context.` };
-    setAiMessages(prev => [...prev, userMsg]);
-    
-    try {
-      const token = localStorage.getItem('vakeellink_token');
-      const response = await fetch('http://localhost:8000/api/v1/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ query: `I am adding the following case for comparison: ${precedent.title}. Summary: ${precedent.summary}. Please acknowledge that you have added this to your context and are ready to compare it with other cases or my input.` })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setAiMessages(prev => [...prev, { role: 'ai', text: data.analysis || `Acknowledged. I have added "${precedent.title}" to the context.` }]);
-      } else {
-        setAiMessages(prev => [...prev, { role: 'ai', text: `Acknowledged context locally, but failed to sync with backend.` }]);
+  const pool = useMemo(() => {
+    const base = [
+      ...libraryMatters,
+      ...ragItems.map((r) => ({
+        id: String(r.id),
+        title: r.title,
+        clientName: r.title,
+        category: r.category || 'RAG precedent',
+        caseType: null,
+        status: 'research',
+        facts: r.summary || '',
+        source: 'rag',
+      })),
+    ];
+    return base.filter((item) => {
+      if (sourceFilter === 'library' && item.source !== 'library' && item.source !== 'consultation') return false;
+      if (sourceFilter === 'rag' && item.source !== 'rag') return false;
+      if (!listQuery.trim()) return true;
+      const q = listQuery.toLowerCase();
+      return (
+        item.title.toLowerCase().includes(q) ||
+        (item.category || '').toLowerCase().includes(q) ||
+        (item.facts || '').toLowerCase().includes(q)
+      );
+    });
+  }, [libraryMatters, ragItems, sourceFilter, listQuery]);
+
+  const selectedMatters = useMemo(
+    () => selectedIds.map((id) => pool.find((p) => p.id === id) || libraryMatters.find((p) => p.id === id) || ragItems.find((r) => String(r.id) === id)).filter(Boolean),
+    [selectedIds, pool, libraryMatters, ragItems]
+  );
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= 4) {
+        if (onToast) onToast('Select up to 4 matters for a focused comparison');
+        return prev;
       }
-    } catch (error) {
-       setAiMessages(prev => [...prev, { role: 'ai', text: `Acknowledged context locally (Network error).` }]);
-    }
+      return [...prev, id];
+    });
   };
 
-  const handleChat = async (e) => {
-    e.preventDefault();
-    if (!aiInput.trim()) return;
-    
-    setAiMessages(prev => [...prev, { role: 'user', text: aiInput }]);
-    const currentInput = aiInput;
-    setAiInput('');
-    
+  const runComparison = async () => {
+    if (selectedMatters.length < 2) {
+      setError('Select at least two matters (or one matter + one RAG finding) to compare.');
+      return;
+    }
+    setRunning(true);
+    setError('');
+    setMemo(null);
+    setRawMemo('');
     try {
-      const token = localStorage.getItem('vakeellink_token');
-      const response = await fetch('http://localhost:8000/api/v1/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ query: currentInput })
+      const prompt = buildComparisonPrompt({
+        cases: selectedMatters,
+        focus,
+        mode: 'full',
       });
-      if (response.ok) {
-        const data = await response.json();
-        setAiMessages(prev => [...prev, { role: 'ai', text: data.analysis || "I could not generate an analysis based on the current context." }]);
-      } else {
-        setAiMessages(prev => [...prev, { role: 'ai', text: "Sorry, I encountered an error while analyzing your request." }]);
-      }
-    } catch (error) {
-      setAiMessages(prev => [...prev, { role: 'ai', text: "Sorry, I encountered a network error while connecting to the AI." }]);
-    }
-  };
-
-  const handleSearch = async (e) => {
-    if (e.key === 'Enter') {
-      if (!searchQuery.trim() || isSearching) return;
-      setIsSearching(true);
-      try {
-        const token = localStorage.getItem('vakeellink_token');
-        const response = await fetch('http://localhost:8000/api/v1/query', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ query: searchQuery })
+      const data = await askLegalAi(prompt);
+      const text = data.analysis || data.answer || '';
+      setRawMemo(text);
+      setMemo(parseComparisonMemo(text));
+      setMeta({
+        provider: data.llm_provider,
+        backend: data.retrieval_backend,
+        confidence: data.confidence_score,
+        domain: data.domain,
+        cited_cases: data.cited_cases || [],
+        cited_sections: data.cited_sections || [],
+        cited_acts: data.cited_acts || [],
+        disclaimer: data.disclaimer,
+      });
+      // Surface strong citations as selectable RAG chips
+      const extra = (data.cited_cases || []).slice(0, 6).map((title, i) => ({
+        id: `rag_${Date.now()}_${i}`,
+        title: typeof title === 'string' ? title : String(title),
+        summary: (data.summary || text).slice(0, 180),
+        category: data.domain || 'RAG',
+        source: 'rag',
+      }));
+      if (extra.length) {
+        setRagItems((prev) => {
+          const titles = new Set(prev.map((p) => p.title));
+          return [...extra.filter((e) => !titles.has(e.title)), ...prev].slice(0, 24);
         });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.cited_cases && data.cited_cases.length > 0) {
-            const newPrecedents = data.cited_cases.map((c, i) => ({
-              id: Date.now() + i,
-              title: c,
-              similarity: 'AI Matched',
-              source: 'rag',
-              summary: data.analysis ? (data.analysis.substring(0, 100) + '...') : 'Found via RAG database search.'
-            }));
-            setPrecedents(prev => [...newPrecedents, ...prev]);
-          }
-        }
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setIsSearching(false);
       }
+      if (onToast) onToast('Comparison memo ready');
+    } catch (err) {
+      setError(err.message || 'Comparison failed. Check backend GROQ/Gemini keys.');
+    } finally {
+      setRunning(false);
     }
   };
 
-  const filteredPrecedents = precedents.filter(p => sourceFilter === 'all' || p.source === sourceFilter);
+  const runRagSearch = async () => {
+    const q = listQuery.trim() || focus.trim();
+    if (!q) {
+      setError('Enter a research phrase (e.g. “mutual consent divorce maintenance”) then search.');
+      return;
+    }
+    setSearching(true);
+    setError('');
+    try {
+      const prompt = buildComparisonPrompt({ focus: q, mode: 'search' });
+      const data = await askLegalAi(prompt);
+      const cited = data.cited_cases || [];
+      const items = (cited.length ? cited : [q]).slice(0, 8).map((title, i) => ({
+        id: `rag_search_${Date.now()}_${i}`,
+        title: typeof title === 'string' ? title : String(title),
+        summary: (data.analysis || data.answer || '').slice(0, 220),
+        category: data.domain || 'RAG',
+        source: 'rag',
+      }));
+      setRagItems((prev) => [...items, ...prev].slice(0, 30));
+      setSourceFilter('all');
+      if (onToast) onToast(`Added ${items.length} research finding(s)`);
+    } catch (err) {
+      setError(err.message || 'RAG search failed');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const askFollowUp = async (e) => {
+    e.preventDefault();
+    if (!followUp.trim() || !rawMemo) return;
+    setFollowBusy(true);
+    const question = followUp.trim();
+    setFollowUp('');
+    setThread((prev) => [...prev, { role: 'user', text: question }]);
+    try {
+      const prompt = [
+        'You are continuing a professional Indian legal case comparison memo for an advocate.',
+        'Use the prior memo and selected matters as context.',
+        '',
+        'SELECTED MATTERS:',
+        ...selectedMatters.map((c, i) => `${i + 1}. ${c.title} (${c.category}): ${(c.facts || '').slice(0, 400)}`),
+        '',
+        'PRIOR MEMO:',
+        rawMemo.slice(0, 4000),
+        '',
+        `Advocate question: ${question}`,
+        'Answer precisely, with statutes/sections where relevant.',
+      ].join('\n');
+      const data = await askLegalAi(prompt);
+      setThread((prev) => [
+        ...prev,
+        { role: 'ai', text: data.analysis || data.answer || 'No additional analysis returned.' },
+      ]);
+    } catch (err) {
+      setThread((prev) => [
+        ...prev,
+        { role: 'ai', text: err.message || 'Follow-up failed — AI backend unavailable.' },
+      ]);
+    } finally {
+      setFollowBusy(false);
+    }
+  };
+
+  const sectionCards = [
+    { key: 'facts', label: 'Facts', tone: 'border-sky-200 bg-sky-50/60 text-sky-900' },
+    { key: 'issues', label: 'Legal issues', tone: 'border-amber-200 bg-amber-50/60 text-amber-950' },
+    { key: 'analysis', label: 'Comparative analysis', tone: 'border-blue-200 bg-blue-50/50 text-blue-950' },
+    { key: 'conclusion', label: 'Conclusion & next steps', tone: 'border-emerald-200 bg-emerald-50/50 text-emerald-950' },
+  ];
 
   return (
-    <section className="space-y-6 animate-in fade-in duration-500 h-full flex flex-col">
-      <div>
-        <h2 className="text-3xl font-semibold text-[#0f2d5e]">Case Comparisons & Strategy</h2>
-        <p className="mt-1 text-sm text-slate-500">Cross-reference your personal case library with RAG intelligence.</p>
+    <section className="animate-in fade-in space-y-5 duration-500">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-blue-700">Advocate workspace</p>
+          <h2 className="mt-1 text-3xl font-semibold tracking-tight text-[#0f2d5e]">Case comparison memo</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
+            Select two or more matters from your Case Files (or pull RAG findings), set a focus, and generate a structured
+            comparison via the live legal AI pipeline (Groq / Gemini + retrieval).
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedIds([]);
+              setMemo(null);
+              setRawMemo('');
+              setThread([]);
+              setMeta(null);
+              setError('');
+            }}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Clear bench
+          </button>
+          <button
+            type="button"
+            disabled={running || selectedIds.length < 2}
+            onClick={runComparison}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#0f2d5e] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#163a75] disabled:opacity-50"
+          >
+            {running ? <Loader2 size={16} className="animate-spin" /> : <Scale size={16} />}
+            {running ? 'Comparing…' : 'Run comparison'}
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-1 gap-6 overflow-hidden min-h-[600px] flex-col lg:flex-row">
-        {/* Left Panel: Cases */}
-        <div className="flex w-full lg:w-1/2 flex-col rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="border-b border-slate-100 p-4">
-            <div className="flex items-center gap-2 rounded-lg bg-slate-100 p-1 mb-4">
-              <button onClick={() => setSourceFilter('all')} className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition-colors ${sourceFilter === 'all' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>All Sources</button>
-              <button onClick={() => setSourceFilter('library')} className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition-colors ${sourceFilter === 'library' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>My Library</button>
-              <button onClick={() => setSourceFilter('rag')} className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition-colors ${sourceFilter === 'rag' ? 'bg-white shadow-sm text-emerald-700' : 'text-slate-500 hover:text-slate-700'}`}>RAG Findings</button>
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+      )}
+
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
+        {/* Left: matter picker */}
+        <div className="flex min-h-[560px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:col-span-5">
+          <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-slate-900">Matter library</h3>
+              <span className="text-[11px] font-semibold text-slate-500">{selectedIds.length}/4 selected</span>
             </div>
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input 
-                type="text" 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={handleSearch}
-                placeholder={isSearching ? "Searching RAG Database..." : "Search precedents (Press Enter)..."} 
-                disabled={isSearching}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-4 text-sm outline-none focus:border-blue-500 focus:bg-white disabled:opacity-70" 
-              />
+            <div className="mb-3 grid grid-cols-3 gap-1 rounded-lg bg-slate-200/60 p-1">
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'library', label: 'My cases' },
+                { id: 'rag', label: 'RAG' },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setSourceFilter(tab.id)}
+                  className={`rounded-md py-1.5 text-xs font-semibold transition-colors ${
+                    sourceFilter === tab.id ? 'bg-white text-[#0f2d5e] shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={listQuery}
+                  onChange={(e) => setListQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      runRagSearch();
+                    }
+                  }}
+                  placeholder="Filter cases or research a precedent…"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={runRagSearch}
+                disabled={searching}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {searching ? <Loader2 size={14} className="animate-spin" /> : <BookOpen size={14} />}
+                RAG
+              </button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
-            {filteredPrecedents.map(p => (
-              <div key={p.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-                <div className="mb-2 flex items-center justify-between">
-                  <h4 className="font-bold text-slate-800">{p.title}</h4>
-                  <div className="flex items-center gap-2">
-                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${p.source === 'library' ? 'bg-blue-50 text-blue-600 border border-blue-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
-                      {p.source === 'library' ? 'Library' : 'RAG'}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">{p.similarity} Match</span>
-                  </div>
-                </div>
-                <p className={`text-xs text-slate-500 mb-3 ${expandedCases.includes(p.id) ? '' : 'line-clamp-2'}`}>{p.summary}</p>
-                <div className="flex gap-2">
-                  <button onClick={() => toggleDetails(p.id)} className="flex-1 rounded border border-slate-200 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
-                    {expandedCases.includes(p.id) ? 'Hide Details' : 'View Details'}
-                  </button>
-                  <button onClick={() => handleAddToCompare(p)} className="flex-1 rounded bg-blue-50 text-blue-600 py-1.5 text-xs font-semibold hover:bg-blue-100 transition-colors">Add to Compare</button>
-                </div>
+
+          <div className="flex-1 space-y-2 overflow-y-auto p-3">
+            {pool.length === 0 && (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
+                No matters here yet. Open <strong>Case Files</strong> to create issues, or run a RAG search.
               </div>
-            ))}
+            )}
+            {pool.map((item) => {
+              const selected = selectedIds.includes(item.id);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => toggleSelect(item.id)}
+                  className={`w-full rounded-xl border p-3.5 text-left transition-all ${
+                    selected
+                      ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/15'
+                      : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-slate-900">{item.title}</p>
+                      <p className="mt-0.5 text-xs font-medium text-slate-500">{item.category}</p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                        item.source === 'rag'
+                          ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : item.source === 'consultation'
+                            ? 'border border-violet-200 bg-violet-50 text-violet-700'
+                            : 'border border-blue-200 bg-blue-50 text-blue-700'
+                      }`}
+                    >
+                      {item.source === 'rag' ? 'RAG' : item.source === 'consultation' ? 'Consult' : 'File'}
+                    </span>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-600">
+                    {formatReadableText(item.facts)[0] || 'No facts recorded.'}
+                  </p>
+                  <div className="mt-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    <span>{item.status}</span>
+                    <span className={selected ? 'text-blue-700' : ''}>{selected ? 'On bench' : 'Select'}</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Right Panel: AI Chat */}
-        <div className="flex w-full lg:w-1/2 flex-col rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
-            <MessageSquare size={18} className="text-blue-600" />
-            <h3 className="font-bold text-slate-800">AI Strategy Chat</h3>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30">
-            {aiMessages.map((msg, idx) => (
-              <div key={idx} className={`flex max-w-[85%] flex-col ${msg.role === 'user' ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
-                <div className={`rounded-xl p-3 text-sm shadow-sm ${msg.role === 'user' ? 'rounded-tr-sm bg-blue-600 text-white' : 'rounded-tl-sm border border-slate-200 bg-white text-slate-700'}`}>
-                  {msg.text}
-                </div>
-              </div>
-            ))}
-          </div>
-          <form onSubmit={handleChat} className="border-t border-slate-100 p-4 bg-white">
-            <div className="relative">
-              <input 
-                type="text" 
-                value={aiInput}
-                onChange={(e) => setAiInput(e.target.value)}
-                placeholder="Ask AI to compare selected cases..." 
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-3 pl-4 pr-12 text-sm outline-none focus:border-blue-500 focus:bg-white transition-shadow focus:ring-4 focus:ring-blue-500/10"
-              />
-              <button type="submit" disabled={!aiInput.trim()} className="absolute bottom-1.5 right-1.5 top-1.5 flex w-9 items-center justify-center rounded-md bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:opacity-50">
-                <ArrowRight size={16} />
-              </button>
+        {/* Right: comparison bench + memo */}
+        <div className="flex min-h-[560px] flex-col gap-4 xl:col-span-7">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-bold text-slate-900">Comparison bench</h3>
+              {meta?.provider && (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                  {meta.provider}
+                  {meta.backend ? ` · ${meta.backend}` : ''}
+                </span>
+              )}
             </div>
-          </form>
+
+            {selectedMatters.length === 0 ? (
+              <p className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                Select at least two matters from the library to build a professional comparison memo.
+              </p>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {selectedMatters.map((m, idx) => (
+                  <span
+                    key={m.id}
+                    className="inline-flex max-w-full items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900"
+                  >
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-700 text-[10px] font-bold text-white">
+                      {idx + 1}
+                    </span>
+                    <span className="truncate">{m.title}</span>
+                    <button type="button" onClick={() => toggleSelect(m.id)} className="text-blue-700/70 hover:text-blue-900">
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <label className="mt-4 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Comparison focus (optional)
+            </label>
+            <textarea
+              value={focus}
+              onChange={(e) => setFocus(e.target.value)}
+              rows={2}
+              placeholder="e.g. Compare interim maintenance strategy and evidence checklists under HMA vs. labour final settlement claims."
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm leading-relaxed outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/15"
+            />
+
+            <button
+              type="button"
+              disabled={running || selectedMatters.length < 2}
+              onClick={runComparison}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-800 disabled:opacity-50"
+            >
+              {running ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Generating memo with legal AI…
+                </>
+              ) : (
+                <>
+                  <Bot size={16} />
+                  Generate professional comparison memo
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="flex-1 rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+              <div className="flex items-center gap-2">
+                <FileText size={16} className="text-blue-700" />
+                <h3 className="text-sm font-bold text-slate-900">Memo output</h3>
+              </div>
+              {meta?.confidence != null && meta.confidence > 0 && (
+                <span className="text-[11px] font-semibold text-slate-500">
+                  Confidence {(Number(meta.confidence) * (meta.confidence <= 1 ? 100 : 1)).toFixed(0)}%
+                </span>
+              )}
+            </div>
+
+            <div className="max-h-[520px] space-y-4 overflow-y-auto p-5">
+              {!memo && !running && (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+                  Your structured memo (Facts · Issues · Analysis · Conclusion) will appear here after you run a comparison.
+                </div>
+              )}
+              {running && (
+                <div className="flex flex-col items-center justify-center gap-3 py-12 text-blue-700">
+                  <Loader2 size={28} className="animate-spin" />
+                  <p className="text-sm font-semibold">Retrieving context and drafting comparison…</p>
+                  <p className="text-xs text-slate-500">This uses the same Groq / Gemini pipeline as the AI Assistant.</p>
+                </div>
+              )}
+
+              {memo && memo.analysis && !memo.facts && !memo.issues && (
+                <div className="prose prose-sm max-w-none whitespace-pre-wrap leading-relaxed text-slate-800">
+                  {memo.analysis}
+                </div>
+              )}
+
+              {memo && (memo.facts || memo.issues || memo.analysis || memo.conclusion) && (
+                <div className="space-y-3">
+                  {sectionCards.map((sec) => {
+                    const body = memo[sec.key];
+                    if (!body) return null;
+                    return (
+                      <article key={sec.key} className={`rounded-xl border p-4 ${sec.tone}`}>
+                        <h4 className="text-[11px] font-black uppercase tracking-[0.18em] opacity-80">{sec.label}</h4>
+                        <div className="mt-2 space-y-2 text-sm leading-relaxed">
+                          {formatReadableText(body).map((para, i) => (
+                            <p key={i} className="whitespace-pre-wrap">
+                              {para}
+                            </p>
+                          ))}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+
+              {meta && (meta.cited_cases?.length > 0 || meta.cited_sections?.length > 0 || meta.cited_acts?.length > 0) && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Authorities referenced</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {[...(meta.cited_acts || []), ...(meta.cited_sections || []), ...(meta.cited_cases || [])]
+                      .slice(0, 16)
+                      .map((c) => (
+                        <span
+                          key={c}
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700"
+                        >
+                          {c}
+                        </span>
+                      ))}
+                  </div>
+                  {meta.disclaimer && (
+                    <p className="mt-3 text-[11px] leading-relaxed text-slate-500">{meta.disclaimer}</p>
+                  )}
+                </div>
+              )}
+
+              {thread.length > 0 && (
+                <div className="space-y-2 border-t border-slate-100 pt-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Follow-up</p>
+                  {thread.map((msg, i) => (
+                    <div
+                      key={i}
+                      className={`rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                        msg.role === 'user'
+                          ? 'ml-6 bg-blue-700 text-white'
+                          : 'mr-6 border border-slate-200 bg-white text-slate-800'
+                      }`}
+                    >
+                      {msg.text}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={askFollowUp} className="flex gap-2 border-t border-slate-100 p-4">
+              <input
+                value={followUp}
+                onChange={(e) => setFollowUp(e.target.value)}
+                disabled={!rawMemo || followBusy}
+                placeholder={rawMemo ? 'Ask a follow-up on this memo…' : 'Run a comparison first to enable follow-ups'}
+                className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white disabled:opacity-60"
+              />
+              <button
+                type="submit"
+                disabled={!rawMemo || followBusy || !followUp.trim()}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50"
+              >
+                {followBusy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-function CaseFilesSection({ onOpenNewCase }) {
-  const cases = [
-    { id: 'CF-9921', client: 'Ravi Kumar', type: 'Family Law', status: 'Ongoing', hearing: 'Oct 28, 2023', progress: 65 },
-    { id: 'CF-8832', client: 'Sneha Kapoor', type: 'Corporate', status: 'In Review', hearing: 'Nov 2, 2023', progress: 40 },
-    { id: 'CF-7719', client: 'Amit V.', type: 'Property', status: 'Drafting', hearing: 'Nov 15, 2023', progress: 20 },
-    { id: 'CF-6641', client: 'Client #3821', type: 'Criminal', status: 'Closed', hearing: 'Past', progress: 100 },
-  ];
+function CaseFilesSection({
+  onOpenNewCase,
+  consultations = [],
+  localCases = [],
+  onOpenConsultations,
+  onRefreshCases,
+  onSelectCase,
+  onToast,
+}) {
+  const fromConsultations = (consultations || []).map((c) => {
+    const status = normalizeStatus(c.status);
+    const progress = status === 'completed' ? 100 : status === 'active' ? 65 : status === 'pending' ? 25 : 10;
+    return {
+      id: c.id,
+      shortId: String(c.id).slice(0, 8).toUpperCase(),
+      client: c.clientName,
+      type: c.category,
+      status: statusLabel(status),
+      rawStatus: status,
+      hearing: c.submittedAt || '—',
+      progress,
+      message: c.message,
+      source: 'consultation',
+    };
+  });
+
+  const fromDrafts = (localCases || []).map((c) => {
+    const rawStatus = String(c.status || 'pending').toLowerCase();
+    const progress =
+      rawStatus === 'completed' ? 100 : rawStatus === 'active' ? 65 : rawStatus === 'pending' ? 20 : 15;
+    return {
+      id: c.id,
+      shortId: String(c.id).replace(/^case_/, '').replace(/^case_seed_/, '').slice(0, 10).toUpperCase(),
+      client: c.clientName || c.title,
+      type: c.category || 'General Law',
+      status: statusLabel(rawStatus === 'draft' ? 'pending' : rawStatus),
+      rawStatus: rawStatus === 'draft' ? 'pending' : rawStatus,
+      hearing: formatRelativeTime(c.createdAt),
+      progress,
+      message: c.facts || '',
+      source: 'draft',
+      raw: c,
+    };
+  });
+
+  // User/local cases first (already sorted: pending → newest), then consultation matters
+  const cases = [...fromDrafts, ...fromConsultations];
+
+  const handleDeleteDraft = (id) => {
+    deleteLawyerCase(id);
+    if (onRefreshCases) onRefreshCases();
+    if (onToast) onToast('Case draft deleted');
+  };
 
   return (
     <section className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-3xl font-semibold text-[#0f2d5e]">Case Files</h2>
-          <p className="mt-1 text-sm text-slate-500">Manage and track your ongoing and past cases.</p>
+          <p className="mt-1 text-sm text-slate-500">
+            Your saved drafts plus client consultation matters.
+          </p>
         </div>
-        <button onClick={onOpenNewCase} className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-blue-500/20 transition-colors hover:bg-blue-800">
+        <button type="button" onClick={onOpenNewCase} className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm shadow-blue-500/20 transition-colors hover:bg-blue-800">
           <Plus size={16} />
-          New Case
+          New case
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {cases.map((c) => (
-          <div key={c.id} className="group flex flex-col rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:border-slate-300 hover:shadow-md">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{c.id}</span>
-              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                c.status === 'Ongoing' ? 'border border-amber-200 bg-amber-100 text-amber-700' :
-                c.status === 'Closed' ? 'border border-emerald-200 bg-emerald-100 text-emerald-700' : 'border border-slate-200 bg-slate-100 text-slate-700'
-              }`}>
-                {c.status}
-              </span>
+      {cases.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
+          No matters yet. Create a case with <strong>New case</strong>, or wait for client consultations.{' '}
+          <button type="button" onClick={onOpenConsultations} className="font-semibold text-blue-600 hover:underline">
+            Open consultations
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {cases.map((c) => (
+            <div
+              key={`${c.source}-${c.id}`}
+              className="group flex flex-col rounded-xl border border-slate-200 bg-white p-6 text-left shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <span className="rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-bold text-blue-700">{c.shortId}</span>
+                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                  c.rawStatus === 'active' ? 'border border-amber-200 bg-amber-100 text-amber-700' :
+                  c.rawStatus === 'completed' ? 'border border-emerald-200 bg-emerald-100 text-emerald-700' :
+                  c.rawStatus === 'pending' ? 'border border-amber-200 bg-amber-50 text-amber-800' :
+                  c.rawStatus === 'draft' ? 'border border-violet-200 bg-violet-50 text-violet-700' :
+                  'border border-slate-200 bg-slate-100 text-slate-700'
+                }`}>
+                  {c.status}
+                </span>
+              </div>
+              <h3 className="mb-1 text-lg font-bold leading-snug text-slate-900 sm:text-xl">{c.client}</h3>
+              <p className="mb-2 text-sm font-medium text-slate-500">{c.type}</p>
+              <div className="mb-5 max-h-28 space-y-1.5 overflow-hidden">
+                {formatReadableText(c.message).slice(0, 3).map((para, idx) => (
+                  <p key={idx} className="text-xs leading-relaxed text-slate-600 line-clamp-2">
+                    {para}
+                  </p>
+                ))}
+                {!c.message && <p className="text-xs text-slate-400">No description yet.</p>}
+              </div>
+              <div className="mt-auto space-y-3">
+                <div className="flex items-center justify-between text-xs font-medium text-slate-600">
+                  <span className="flex items-center gap-1.5"><CalendarDays size={14} className="text-blue-500" /> {c.hearing}</span>
+                  <span className="font-bold text-slate-700">{c.progress}%</span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-blue-600 transition-all duration-1000" style={{ width: `${c.progress}%` }} />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (c.source === 'consultation') onOpenConsultations();
+                      else if (onSelectCase) onSelectCase(c.raw || c);
+                      else if (onToast) onToast(`Opened: ${c.client}`);
+                    }}
+                    className="flex-1 rounded-lg bg-blue-50 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100"
+                  >
+                    {c.source === 'consultation' ? 'Open consultations' : 'View details'}
+                  </button>
+                  {c.source === 'draft' && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDraft(c.id)}
+                      className="rounded-lg border border-rose-200 px-3 py-2 text-rose-600 hover:bg-rose-50"
+                      title="Delete draft"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-            <h3 className="mb-1 text-xl font-bold text-slate-900 transition-colors group-hover:text-blue-700">{c.client}</h3>
-            <p className="mb-6 text-sm font-medium text-slate-500">{c.type}</p>
-            
-            <div className="mt-auto">
-              <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-600">
-                <span className="flex items-center gap-1.5"><CalendarDays size={14} className="text-blue-500" /> Next Hearing: {c.hearing}</span>
-                <span className="font-bold text-slate-700">{c.progress}%</span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-blue-600 transition-all duration-1000" style={{ width: `${c.progress}%` }} />
-              </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+const FOLDER_ICON_MAP = {
+  heart: Scale,
+  briefcase: Briefcase,
+  shield: Shield,
+  home: Home,
+  cart: FileText,
+  scale: Scale,
+  file: FileText,
+  folder: Folder,
+};
+
+function DocumentsSection({ onToast }) {
+  const [folders, setFolders] = useState(() => getDocumentFoldersWithCounts());
+  const [activeFolderId, setActiveFolderId] = useState(null);
+  const [docs, setDocs] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [query, setQuery] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const activeFolder = folders.find((f) => f.id === activeFolderId) || null;
+
+  const refreshFolders = () => setFolders(getDocumentFoldersWithCounts());
+
+  const openFolder = (folderId) => {
+    setActiveFolderId(folderId);
+    setDocs(listDocumentsInFolder(folderId));
+    setQuery('');
+  };
+
+  const closeFolder = () => {
+    setActiveFolderId(null);
+    setDocs([]);
+    setQuery('');
+    refreshFolders();
+  };
+
+  const refreshOpenFolder = () => {
+    if (activeFolderId) setDocs(listDocumentsInFolder(activeFolderId));
+    refreshFolders();
+  };
+
+  const visibleDocs = docs.filter((d) => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase();
+    return (
+      d.name?.toLowerCase().includes(q) ||
+      d.notes?.toLowerCase().includes(q) ||
+      d.caseLabel?.toLowerCase().includes(q)
+    );
+  });
+
+  const handleUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !activeFolderId) return;
+    if (file.size > 2 * 1024 * 1024) {
+      if (onToast) onToast('Please choose a file under 2 MB for browser storage');
+      return;
+    }
+    setUploading(true);
+    try {
+      const contentBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('Read failed'));
+        reader.readAsDataURL(file);
+      });
+      addLawyerDocument({
+        name: file.name,
+        folderId: activeFolderId,
+        caseLabel: activeFolder?.label || 'General',
+        notes: notes.trim(),
+        contentBase64,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+      });
+      setNotes('');
+      refreshOpenFolder();
+      if (onToast) onToast(`Added “${file.name}” to ${activeFolder?.label || 'folder'}`);
+    } catch {
+      if (onToast) onToast('Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDownload = (doc) => {
+    if (!doc.contentBase64) {
+      if (onToast) {
+        onToast(
+          doc.seed
+            ? 'Sample document — re-upload your own file to enable download'
+            : 'No file content stored for this entry'
+        );
+      }
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = doc.contentBase64;
+    a.download = doc.name || 'document';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    if (onToast) onToast(`Downloading ${doc.name}`);
+  };
+
+  const handleDelete = (id) => {
+    deleteLawyerDocument(id);
+    refreshOpenFolder();
+    if (onToast) onToast('Document removed');
+  };
+
+  const totalDocs = folders.reduce((sum, f) => sum + (f.count || 0), 0);
+
+  // ── Folder grid (home) ────────────────────────────────────────────────────
+  if (!activeFolder) {
+    return (
+      <section className="animate-in fade-in space-y-6 duration-500">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-blue-700">Document vault</p>
+            <h2 className="mt-1 text-3xl font-semibold tracking-tight text-[#0f2d5e]">Documents</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Organised by practice area. Open a folder to view, upload, or manage filings (stored offline in this browser, max 2&nbsp;MB each).
+            </p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-center shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total files</p>
+            <p className="text-2xl font-black text-[#0f2d5e]">{totalDocs}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {folders.map((folder) => {
+            const Icon = FOLDER_ICON_MAP[folder.icon] || Folder;
+            return (
+              <button
+                key={folder.id}
+                type="button"
+                onClick={() => openFolder(folder.id)}
+                className={`group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md ring-1 ${folder.ring || 'ring-transparent'}`}
+              >
+                <div className={`absolute inset-0 bg-gradient-to-br ${folder.accent} opacity-80`} />
+                <div className="relative z-10 flex items-start justify-between gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/90 text-[#0f2d5e] shadow-sm ring-1 ring-slate-200/80">
+                    <Icon size={22} />
+                  </div>
+                  <span className="rounded-full bg-white/90 px-2.5 py-1 text-xs font-bold text-slate-700 shadow-sm ring-1 ring-slate-200/70">
+                    {folder.count} file{folder.count === 1 ? '' : 's'}
+                  </span>
+                </div>
+                <div className="relative z-10 mt-4">
+                  <h3 className="text-base font-bold text-slate-900 group-hover:text-blue-800">{folder.label}</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">{folder.description}</p>
+                  {folder.latestName && (
+                    <p className="mt-3 truncate text-[11px] font-medium text-slate-500">
+                      Latest: {folder.latestName}
+                    </p>
+                  )}
+                </div>
+                <div className="relative z-10 mt-4 flex items-center gap-1 text-xs font-bold text-blue-700 opacity-0 transition-opacity group-hover:opacity-100">
+                  Open folder <ChevronRight size={14} />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
+  // ── Inside a folder ───────────────────────────────────────────────────────
+  const ActiveFolderIcon = FOLDER_ICON_MAP[activeFolder.icon] || Folder;
+
+  return (
+    <section className="animate-in fade-in space-y-5 duration-500">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <nav className="mb-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-500">
+            <button type="button" onClick={closeFolder} className="hover:text-blue-700">
+              Documents
+            </button>
+            <ChevronRight size={12} className="text-slate-400" />
+            <span className="text-[#0f2d5e]">{activeFolder.label}</span>
+          </nav>
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#0f2d5e] text-white shadow-sm">
+              <ActiveFolderIcon size={22} />
+            </div>
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight text-[#0f2d5e] sm:text-3xl">{activeFolder.label}</h2>
+              <p className="mt-0.5 text-sm text-slate-500">{activeFolder.description}</p>
             </div>
           </div>
-        ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={closeFolder}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <ArrowLeft size={16} />
+            All folders
+          </button>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-800">
+            {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+            {uploading ? 'Uploading…' : 'Add document'}
+            <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
+          </label>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:col-span-1">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Upload into this folder</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            Files stay in <strong>{activeFolder.label}</strong>. Optional note helps you find them later.
+          </p>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            placeholder="Optional note (e.g. “Client Mehta — maintenance petition annexure”)"
+            className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/15"
+          />
+          <label className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-blue-300 bg-blue-50/60 py-3 text-sm font-bold text-blue-800 hover:bg-blue-50">
+            {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+            Choose file (max 2 MB)
+            <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
+          </label>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:col-span-2">
+          <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
+              <FolderOpen size={16} className="text-blue-700" />
+              {docs.length} document{docs.length === 1 ? '' : 's'}
+            </div>
+            <div className="relative min-w-0 sm:w-64">
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search in folder…"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+              />
+            </div>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {visibleDocs.length === 0 && (
+              <div className="px-6 py-14 text-center text-sm text-slate-500">
+                {docs.length === 0
+                  ? 'This folder is empty. Add a document with the upload control.'
+                  : 'No documents match your search.'}
+              </div>
+            )}
+            {visibleDocs.map((doc) => (
+              <div
+                key={doc.id}
+                className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-slate-50/80 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-blue-700">
+                    <FileText size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-slate-900">{doc.name}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">
+                      {formatBytes(doc.size)} · {doc.date ? new Date(doc.date).toLocaleDateString() : '—'}
+                      {doc.seed ? ' · Sample' : ''}
+                    </p>
+                    {doc.notes && (
+                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">{doc.notes}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1 sm:pl-4">
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(doc)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Download size={14} />
+                    Download
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(doc.id)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-100 bg-white px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                  >
+                    <Trash2 size={14} />
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );
 }
 
-function DocumentsSection() {
-  const docs = [
-    { id: 1, name: 'Affidavit_Kumar.pdf', size: '2.4 MB', date: 'Oct 20, 2023', case: 'CF-9921' },
-    { id: 2, name: 'Bail_Application_Draft.docx', size: '1.1 MB', date: 'Oct 21, 2023', case: 'CF-6641' },
-    { id: 3, name: 'Property_Deed_Scan.pdf', size: '8.5 MB', date: 'Oct 22, 2023', case: 'CF-7719' },
-    { id: 4, name: 'Corporate_Merger_Agreement.pdf', size: '12.0 MB', date: 'Oct 23, 2023', case: 'CF-8832' },
-  ];
+function AnalyticsSection({ consultations = [], localCases = [], onOpenConsultations, onOpenCaseFiles }) {
+  const docs = listLawyerDocuments();
+  const stats = buildAnalytics({ consultations, cases: localCases, documents: docs });
+  const maxMonth = Math.max(1, ...stats.months.map((m) => m.count));
 
   return (
     <section className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-3xl font-semibold text-[#0f2d5e]">Documents</h2>
-          <p className="mt-1 text-sm text-slate-500">Securely store and manage your legal documents.</p>
+          <h2 className="text-3xl font-semibold text-[#0f2d5e]">Analytics & Insights</h2>
+          <p className="mt-1 text-sm text-slate-500">Live numbers from your consultations, case files, and documents.</p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg bg-[#0f2d5e] px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#143974]">
-          <Plus size={16} />
-          Upload Document
+        <button
+          type="button"
+          onClick={onOpenConsultations}
+          className="text-sm font-semibold text-blue-600 hover:text-blue-700"
+        >
+          View consultations report
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-slate-600">
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-              <tr>
-                <th className="px-6 py-4 font-semibold">Document Name</th>
-                <th className="px-6 py-4 font-semibold">Case ID</th>
-                <th className="px-6 py-4 font-semibold">Size</th>
-                <th className="px-6 py-4 font-semibold">Upload Date</th>
-                <th className="px-6 py-4 text-right font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {docs.map((doc) => (
-                <tr key={doc.id} className="group transition-colors hover:bg-slate-50/80">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600 transition-colors group-hover:bg-blue-600 group-hover:text-white">
-                        <FileText size={18} />
-                      </div>
-                      <span className="font-semibold text-slate-900">{doc.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm">{doc.case}</span>
-                  </td>
-                  <td className="px-6 py-4 font-medium">{doc.size}</td>
-                  <td className="px-6 py-4">{doc.date}</td>
-                  <td className="px-6 py-4 text-right">
-                    <button className="inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-200 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
-                      <Download size={18} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Consultations</p>
+          <p className="mt-1 text-3xl font-black text-[#0f2d5e]">{stats.totalConsultations}</p>
         </div>
-      </div>
-    </section>
-  );
-}
-
-function AnalyticsSection() {
-  return (
-    <section className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex items-end justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold text-[#0f2d5e]">Analytics & Insights</h2>
-          <p className="mt-1 text-sm text-slate-500">Track your performance and practice growth.</p>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Case files</p>
+          <p className="mt-1 text-3xl font-black text-[#0f2d5e]">{stats.totalCases}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Documents</p>
+          <p className="mt-1 text-3xl font-black text-[#0f2d5e]">{stats.totalDocuments}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Open matters</p>
+          <p className="mt-1 text-3xl font-black text-[#0f2d5e]">{stats.openMatters}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
           <div className="mb-8 flex items-center justify-between">
-            <h3 className="text-lg font-bold text-slate-900">Case Success Rate</h3>
-            <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">Top 10%</span>
+            <h3 className="text-lg font-bold text-slate-900">Completion rate</h3>
+            <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">Live</span>
           </div>
           <div className="flex items-center justify-center py-6">
             <div className="relative flex h-52 w-52 items-center justify-center rounded-full border-[12px] border-slate-100 shadow-inner">
               <div className="absolute inset-0 rotate-45 transform rounded-full border-[12px] border-emerald-500 border-l-transparent border-t-transparent transition-all duration-1000" />
               <div className="z-10 text-center">
-                <span className="text-5xl font-black tracking-tight text-slate-900">82<span className="text-3xl text-slate-500">%</span></span>
-                <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Win Rate</p>
+                <span className="text-5xl font-black tracking-tight text-slate-900">{stats.winRate}<span className="text-3xl text-slate-500">%</span></span>
+                <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Closed / active</p>
               </div>
             </div>
           </div>
           <div className="mt-6 grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-100 pt-6 text-center gap-4">
             <div>
-              <p className="text-3xl font-black text-emerald-600">41</p>
-              <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Cases Won</p>
+              <p className="text-3xl font-black text-emerald-600">{stats.byStatus.completed}</p>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Completed</p>
             </div>
             <div>
-              <p className="text-3xl font-black text-slate-700">9</p>
-              <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Lost / Settled</p>
+              <p className="text-3xl font-black text-slate-700">{stats.byStatus.active + stats.byStatus.pending}</p>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Active + pending</p>
             </div>
           </div>
         </div>
@@ -590,20 +1405,22 @@ function AnalyticsSection() {
         <div className="flex flex-col rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
           <div className="mb-8 flex items-center justify-between">
             <h3 className="text-lg font-bold text-slate-900">Monthly Consultations</h3>
-            <button className="text-sm font-semibold text-blue-600 hover:text-blue-700">View Full Report</button>
+            <button type="button" onClick={onOpenCaseFiles} className="text-sm font-semibold text-blue-600 hover:text-blue-700">
+              Open case files
+            </button>
           </div>
-          <div className="flex flex-1 items-end gap-3 pb-4 pt-8">
-            {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((month, i) => {
-              const height = [40, 60, 45, 80, 55, 90][i];
+          <div className="flex flex-1 items-end gap-3 pb-4 pt-8 min-h-[200px]">
+            {stats.months.map((month) => {
+              const height = Math.max(8, Math.round((month.count / maxMonth) * 100));
               return (
-                <div key={month} className="group relative flex flex-1 flex-col items-center gap-2">
+                <div key={month.key} className="group relative flex flex-1 flex-col items-center gap-2">
                   <div className="absolute -top-8 hidden rounded-md bg-slate-800 px-2 py-1 text-xs font-bold text-white shadow-lg group-hover:block">
-                    {height}
+                    {month.count}
                   </div>
                   <div className="relative w-full overflow-hidden rounded-t-lg bg-blue-100 transition-all duration-500 group-hover:bg-blue-600" style={{ height: `${height}%` }}>
                     <div className="absolute bottom-0 h-1/2 w-full bg-gradient-to-t from-blue-600/20 to-transparent" />
                   </div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{month}</span>
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{month.label}</span>
                 </div>
               );
             })}
@@ -611,10 +1428,10 @@ function AnalyticsSection() {
           <div className="mt-6 rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-bold text-[#0f2d5e]">Consultation Growth</p>
+                <p className="text-sm font-bold text-[#0f2d5e]">Practice snapshot</p>
                 <p className="mt-0.5 flex items-center gap-1 text-xs font-medium text-emerald-600">
                   <Zap size={12} />
-                  +15% from last month
+                  {stats.byStatus.draft} draft case{stats.byStatus.draft === 1 ? '' : 's'} · {stats.totalDocuments} document{stats.totalDocuments === 1 ? '' : 's'}
                 </p>
               </div>
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-white shadow-md shadow-blue-500/30">
@@ -628,168 +1445,482 @@ function AnalyticsSection() {
   );
 }
 
-function ProfileSection({ user }) {
-  const [profileData, setProfileData] = useState(null);
+function ProfileSection({ user, consultationStats = {}, onProfileSaved }) {
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState('');
+  const [form, setForm] = useState({
+    name: user?.name || user?.full_name || '',
+    email: user?.email || '',
+    phone: '',
+    gender: user?.gender || '',
+    specialization: 'Civil & Commercial Law',
+    experience_years: 8,
+    location: 'New Delhi, India',
+    bar_council_id: '',
+    fee_per_consultation: 3500,
+    is_online: true,
+    is_verified: true,
+    languages: 'English, Hindi',
+    areas_of_practice: 'Civil litigation, Contract drafting, Family mediation, Consumer disputes',
+    bio:
+      'I am a practising advocate with a focus on clear, practical legal advice for individuals and small businesses. ' +
+      'My approach is simple: understand the facts carefully, explain the law in plain language, map realistic options, ' +
+      'and move decisively on strategy — whether that means negotiation, mediation, or court proceedings.\n\n' +
+      'I assist clients with civil and commercial disputes, family and matrimonial counsel, consumer complaints, ' +
+      'and day-to-day contract and compliance questions. Consultations on VakeelLink are confidential and structured ' +
+      'so you leave with next steps, not just jargon.',
+  });
 
   useEffect(() => {
+    if (!toast) return undefined;
+    const t = window.setTimeout(() => setToast(''), 2800);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  useEffect(() => {
+    let cancelled = false;
     const fetchProfile = async () => {
+      setLoading(true);
       try {
-        const token = localStorage.getItem('vakeellink_token');
-        if (!token) {
+        if (!hasRealToken()) {
           setLoading(false);
           return;
         }
-        const res = await fetch('http://localhost:8000/api/lawyers/me/profile', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setProfileData(data);
-        }
+        const data = await apiGet('/api/v1/lawyers/me/profile');
+        if (cancelled || !data) return;
+        setForm((prev) => ({
+          ...prev,
+          name: data.name || prev.name,
+          email: data.email || user?.email || prev.email,
+          phone: data.phone || data.phone_number || prev.phone,
+          gender: data.gender || prev.gender || user?.gender || '',
+          specialization: data.specialization
+            ? String(data.specialization).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+            : prev.specialization,
+          experience_years: Number(data.experience_years ?? prev.experience_years),
+          location: data.location || prev.location,
+          bar_council_id: data.bar_council_id || prev.bar_council_id,
+          fee_per_consultation: Number(data.fee_per_consultation ?? prev.fee_per_consultation),
+          is_online: data.is_online !== undefined ? Boolean(data.is_online) : prev.is_online,
+          is_verified: data.is_verified !== undefined ? Boolean(data.is_verified) : prev.is_verified,
+          languages: Array.isArray(data.languages)
+            ? data.languages.join(', ')
+            : data.languages || prev.languages,
+          areas_of_practice: Array.isArray(data.areas_of_practice)
+            ? data.areas_of_practice.join(', ')
+            : data.areas_of_practice || prev.areas_of_practice,
+          bio: data.bio || prev.bio,
+        }));
       } catch (err) {
         console.error('Profile fetch error:', err);
+        setToast(err.message || 'Could not load profile from server — showing defaults');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     fetchProfile();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.email, user?.gender]);
 
-  const fallbackProfile = {
-    name: user?.name || 'Adv. Priya Sharma',
-    specialization: 'Corporate & Family Law',
-    experience_years: 8,
-    bio: 'Dedicated advocate with extensive experience in corporate disputes and family settlements. Committed to providing ethical and effective legal representation.',
-    location: 'Mumbai, Maharashtra',
-    bar_council_id: 'MAH/1234/2015',
-    email: user?.email || 'priya.sharma@lexprecise.com',
-    phone: '+91 98765 43210'
+  const initials = (form.name || 'AD')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join('');
+
+  const onChange = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    if (!hasRealToken()) {
+      setToast('Sign in with a real/offline account to save profile');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        bio: form.bio.trim(),
+        specialization: form.specialization.trim().toLowerCase().replace(/\s+/g, ' '),
+        location: form.location.trim(),
+        experience_years: Number(form.experience_years) || 0,
+        fee_per_consultation: Number(form.fee_per_consultation) || 0,
+        is_online: Boolean(form.is_online),
+        phone: form.phone.trim() || null,
+        languages: form.languages
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+        areas_of_practice: form.areas_of_practice
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      };
+      await apiPut('/api/v1/lawyers/me/profile', payload);
+      // Persist gender + name locally for sidebar / auth display
+      if (onProfileSaved) {
+        onProfileSaved({
+          name: form.name.trim(),
+          full_name: form.name.trim(),
+          gender: form.gender || null,
+          specialization: form.specialization.trim(),
+        });
+      }
+      setToast('Profile saved — sidebar name updated');
+    } catch (err) {
+      setToast(err.message || 'Failed to save profile');
+    } finally {
+      setSaving(false);
+    }
   };
-
-  const displayData = profileData || fallbackProfile;
 
   if (loading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
         <div className="flex flex-col items-center gap-4 text-blue-600">
-          <Bot className="animate-bounce" size={40} />
-          <p className="text-sm font-semibold uppercase tracking-widest text-slate-400">Loading Profile...</p>
+          <Loader2 className="animate-spin" size={36} />
+          <p className="text-sm font-semibold uppercase tracking-widest text-slate-400">Loading profile…</p>
         </div>
       </div>
     );
   }
 
+  const activeCount = consultationStats.active || 0;
+  const pendingCount = consultationStats.pending || 0;
+  const completedCount = consultationStats.completed || 0;
+
   return (
     <section className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="text-3xl font-semibold text-[#0f2d5e]">Profile Settings</h2>
-          <p className="mt-1 text-sm text-slate-500">Manage your professional identity and portal preferences.</p>
+          <h2 className="text-3xl font-semibold text-[#0f2d5e]">Advocate profile</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            This is how clients see you on VakeelLink. Keep your bio, practice areas, and fees accurate so the right matters reach you.
+          </p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-blue-500/20 transition-colors hover:bg-blue-800">
-          Save Changes
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-blue-500/20 transition-colors hover:bg-blue-800 disabled:opacity-60"
+        >
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+          Save changes
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        <div className="lg:col-span-1">
-          <div className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-            <div className="absolute inset-0 bg-gradient-to-b from-blue-50 to-white opacity-50" />
-            <div className="relative z-10">
-              <div className="mx-auto mb-5 flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-[#0f2d5e] to-blue-700 text-4xl font-black text-white shadow-xl ring-4 ring-white transition-transform group-hover:scale-105">
-                {displayData.name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Identity card */}
+        <div className="space-y-6 lg:col-span-1">
+          <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-r from-[#0f2d5e] via-blue-800 to-[#0f2d5e]" />
+            <div className="relative z-10 pt-8">
+              <div className="mx-auto mb-4 flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-[#0f2d5e] to-blue-600 text-3xl font-black text-white shadow-xl ring-4 ring-white">
+                {initials}
               </div>
-              <h3 className="text-2xl font-bold tracking-tight text-slate-900">{displayData.name}</h3>
-              <p className="mt-1 inline-block rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-600">{displayData.specialization}</p>
-              
-              <div className="mt-8 flex justify-center gap-6 border-t border-slate-100 pt-8">
-                <div className="flex-1 text-center">
-                  <p className="text-3xl font-black text-slate-800">{displayData.experience_years}</p>
-                  <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Years Exp</p>
+              <h3 className="text-2xl font-bold tracking-tight text-slate-900">{form.name || 'Your name'}</h3>
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                <Scale size={12} />
+                {form.specialization || 'Practice area'}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                {form.is_verified && (
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                    Verified counsel
+                  </span>
+                )}
+                <span
+                  className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                    form.is_online
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-500'
+                  }`}
+                >
+                  {form.is_online ? 'Available now' : 'Away'}
+                </span>
+              </div>
+
+              <div className="mt-8 grid grid-cols-3 gap-2 border-t border-slate-100 pt-6">
+                <div>
+                  <p className="text-2xl font-black text-slate-800">{form.experience_years || 0}</p>
+                  <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Years</p>
                 </div>
-                <div className="w-px bg-slate-200" />
-                <div className="flex-1 text-center">
-                  <p className="text-3xl font-black text-slate-800">18</p>
-                  <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">Active Cases</p>
+                <div>
+                  <p className="text-2xl font-black text-slate-800">{activeCount}</p>
+                  <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Active</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-black text-slate-800">{completedCount}</p>
+                  <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">Done</p>
                 </div>
               </div>
             </div>
           </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">Chamber details</h4>
+            <ul className="mt-4 space-y-3 text-sm text-slate-600">
+              <li className="flex items-start gap-2">
+                <Mail size={16} className="mt-0.5 shrink-0 text-blue-600" />
+                <span className="break-all">{form.email || '—'}</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <MessageCircle size={16} className="mt-0.5 shrink-0 text-blue-600" />
+                <span>{form.phone || 'Add a contact number'}</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Scale size={16} className="mt-0.5 shrink-0 text-blue-600" />
+                <span>{form.location || 'Add city / court complex'}</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <FileText size={16} className="mt-0.5 shrink-0 text-blue-600" />
+                <span>Bar ID: {form.bar_council_id || 'Not on file'}</span>
+              </li>
+            </ul>
+            {pendingCount > 0 && (
+              <p className="mt-5 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                {pendingCount} pending consultation request{pendingCount === 1 ? '' : 's'} waiting in Consultations.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-[#0f2d5e] p-6 text-white shadow-sm">
+            <h4 className="text-sm font-bold">Professional standards</h4>
+            <p className="mt-2 text-xs leading-relaxed text-blue-100/90">
+              Maintain client confidentiality, disclose conflicts early, and keep fee estimates transparent.
+              VakeelLink consultations should end with clear action items and document checklists where relevant.
+            </p>
+          </div>
         </div>
 
+        {/* Editable form */}
         <div className="lg:col-span-2">
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 bg-slate-50 px-8 py-5">
+          <form onSubmit={handleSave} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 bg-slate-50 px-6 py-4 md:px-8">
               <h3 className="flex items-center gap-2 text-lg font-bold text-[#0f2d5e]">
                 <UserCircle2 size={20} className="text-blue-600" />
-                Personal Information
+                Professional information
               </h3>
+              <p className="mt-1 text-xs text-slate-500">Fields marked for public display appear on your directory profile.</p>
             </div>
-            <div className="p-8">
-              <form className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">Full Name</label>
-                  <input type="text" defaultValue={displayData.name} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" />
-                </div>
-                
-                <div>
-                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">Email Address</label>
-                  <input type="email" defaultValue={displayData.email} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" />
-                </div>
-                
-                <div>
-                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">Phone Number</label>
-                  <input type="tel" defaultValue={displayData.phone} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" />
-                </div>
 
-                <div>
-                  <label className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Bar Council ID
-                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[8px] font-black text-emerald-700">VERIFIED</span>
-                  </label>
-                  <input type="text" defaultValue={displayData.bar_council_id} className="cursor-not-allowed w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-500 outline-none" disabled />
-                </div>
+            <div className="grid grid-cols-1 gap-x-6 gap-y-5 p-6 sm:grid-cols-2 md:p-8">
+              <div className="sm:col-span-2">
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Full name (as on vakalatnama)</label>
+                <input
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => onChange('name', e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                  required
+                />
+              </div>
 
-                <div>
-                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">Location</label>
-                  <input type="text" defaultValue={displayData.location} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" />
-                </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Email</label>
+                <input
+                  type="email"
+                  value={form.email}
+                  disabled
+                  className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-500"
+                />
+              </div>
 
-                <div className="sm:col-span-2">
-                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">Professional Bio</label>
-                  <textarea rows="4" defaultValue={displayData.bio} className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10" />
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Phone / WhatsApp</label>
+                <input
+                  type="tel"
+                  value={form.phone}
+                  onChange={(e) => onChange('phone', e.target.value)}
+                  placeholder="+91 98XXX XXXXX"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Gender (optional)</label>
+                <select
+                  value={form.gender || ''}
+                  onChange={(e) => onChange('gender', e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                >
+                  <option value="">Prefer not to say</option>
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Primary specialization</label>
+                <input
+                  type="text"
+                  value={form.specialization}
+                  onChange={(e) => onChange('specialization', e.target.value)}
+                  placeholder="e.g. Family Law, Criminal Defence"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Years of practice</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={60}
+                  value={form.experience_years}
+                  onChange={(e) => onChange('experience_years', e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">City / court complex</label>
+                <input
+                  type="text"
+                  value={form.location}
+                  onChange={(e) => onChange('location', e.target.value)}
+                  placeholder="e.g. Saket Courts, New Delhi"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Bar Council ID
+                  {form.is_verified && (
+                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[8px] font-black text-emerald-700">ON FILE</span>
+                  )}
+                </label>
+                <input
+                  type="text"
+                  value={form.bar_council_id}
+                  disabled
+                  className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-500"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Fee per consultation (₹)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.fee_per_consultation}
+                  onChange={(e) => onChange('fee_per_consultation', e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 sm:col-span-2">
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input
+                    type="checkbox"
+                    className="peer sr-only"
+                    checked={form.is_online}
+                    onChange={(e) => onChange('is_online', e.target.checked)}
+                  />
+                  <div className="h-6 w-11 rounded-full bg-slate-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-emerald-500 peer-checked:after:translate-x-full" />
+                </label>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Show as available for new consultations</p>
+                  <p className="text-xs text-slate-500">Clients prefer advocates marked online for urgent chat requests.</p>
                 </div>
-              </form>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Areas of practice <span className="font-medium normal-case text-slate-400">(comma-separated)</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.areas_of_practice}
+                  onChange={(e) => onChange('areas_of_practice', e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Languages <span className="font-medium normal-case text-slate-400">(comma-separated)</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.languages}
+                  onChange={(e) => onChange('languages', e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Professional bio</label>
+                <textarea
+                  rows={7}
+                  value={form.bio}
+                  onChange={(e) => onChange('bio', e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium leading-relaxed text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+                <p className="mt-2 text-xs text-slate-400">
+                  Tip: mention courts you regularly appear in, typical matters, and how first consultations work.
+                </p>
+              </div>
+
+              <div className="sm:col-span-2 flex flex-wrap gap-3 border-t border-slate-100 pt-5">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-6 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60"
+                >
+                  {saving ? <Loader2 size={16} className="animate-spin" /> : null}
+                  Save profile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setToast('Profile preview uses the public lawyer directory card')}
+                  className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Preview note
+                </button>
+              </div>
             </div>
-          </div>
+          </form>
         </div>
       </div>
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-[120] max-w-sm rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-lg">
+          {toast}
+        </div>
+      )}
     </section>
   );
 }
 
 export default function LawyerDashboard() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
+  const displayName = user?.name || user?.full_name || 'Advocate';
+  const sidebarSubtitle = user?.gender
+    ? `${String(user.gender).charAt(0).toUpperCase()}${String(user.gender).slice(1)} · Advocate`
+    : user?.specialization
+      ? String(user.specialization)
+      : 'Lawyer portal';
   const [approvalStatus, setApprovalStatus] = useState(() => localStorage.getItem('vakeellink_lawyer_approval_status') || 'approved');
   const [activeSection, setActiveSection] = useState('dashboard');
   const [rejectionReason] = useState('Bar Council ID mismatch with the uploaded verification documents.');
-  const [consultations, setConsultations] = useState(CONSULTATION_REQUESTS);
+  const [consultations, setConsultations] = useState([]);
+  const [consultationsLoading, setConsultationsLoading] = useState(true);
+  const [localCases, setLocalCases] = useState(() => listLawyerCases());
+  const [selectedCaseDetail, setSelectedCaseDetail] = useState(null);
+  const [headerSearch, setHeaderSearch] = useState('');
+  const [chatTarget, setChatTarget] = useState(null);
+  /** Accepted but still chatting — keep card out of "Active" until chat closes. */
+  const [chatHoldIds, setChatHoldIds] = useState(() => new Set());
+  const [acceptingId, setAcceptingId] = useState(null);
 
-  // Case Comparisons State (Lifted for persistence)
-  const [compSourceFilter, setCompSourceFilter] = useState('all');
-  const [compSearchQuery, setCompSearchQuery] = useState('');
-  const [isCompSearching, setIsCompSearching] = useState(false);
-  const [compPrecedents, setCompPrecedents] = useState([
-    { id: 1, title: 'State v. Sharma (2019)', similarity: '92%', source: 'rag', summary: 'Similar property dispute involving ancestral rights.' },
-    { id: 2, title: 'Rao & Co. v. Union (2021)', similarity: '85%', source: 'library', summary: 'Corporate merger precedent from your past cases.' },
-    { id: 3, title: 'Tech Solutions v. Dept of Revenue', similarity: '78%', source: 'rag', summary: 'Taxation dispute involving software licensing.' }
-  ]);
-  const [compAiMessages, setCompAiMessages] = useState([
-    { role: 'ai', text: 'Select precedents from your library or RAG database to compare. I can highlight discrepancies and formulate arguments.' }
-  ]);
-  const [compAiInput, setCompAiInput] = useState('');
   const [consultationQuery, setConsultationQuery] = useState('');
   const [consultationFilter, setConsultationFilter] = useState('all');
   const [consultationSort, setConsultationSort] = useState('latest');
@@ -797,18 +1928,123 @@ export default function LawyerDashboard() {
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [isNewCaseModalOpen, setIsNewCaseModalOpen] = useState(false);
   const [aiInput, setAiInput] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
   const [aiMessages, setAiMessages] = useState([
     {
       id: 1,
       sender: 'ai',
-      text: `Hello Adv. Priya. I am LexPrecise AI. I have full context of your profile, your 18 consultations this month, and your expertise in Family and Corporate Law. How can I assist you with your caseload today?`,
+      text: `Hello ${displayName}. I am LexPrecise AI. Ask about strategy, statutes, or case framing — connect to live caseload via Consultations.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
 
-  const handleSendAiMessage = (e) => {
+  const refreshLocalCases = useCallback(() => {
+    setLocalCases(listLawyerCases());
+  }, []);
+
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const applyMergedConsultations = useCallback(
+    (remoteRows = []) => {
+      const lawyerId = user?.id;
+      ensureDemoConsultations(lawyerId, displayName);
+      // Include ALL local workspace rows so demo-lawyer bookings are not dropped
+      const localRows = listLocalConsultations(null);
+      const merged = mergeLawyerConsultationSources({
+        user,
+        remoteRows,
+        localRows,
+      });
+      const mapped = merged.map((row) => {
+        const m = mapConsultationForLawyer(row);
+        const status = normalizeStatus(row.status || m.status);
+        const unread =
+          Boolean(row.unread) ||
+          (status === 'pending' &&
+            (row.source === 'client_booking' ||
+              row.source === 'local' ||
+              String(row.id || '').startsWith('booking_')));
+        return {
+          ...m,
+          status,
+          statusLabel: statusLabel(status),
+          unread: unread && status === 'pending',
+          source: row.source,
+          clientMessage: m.message,
+        };
+      });
+      // Pending/unread first
+      mapped.sort((a, b) => {
+        if (Boolean(a.unread) !== Boolean(b.unread)) return a.unread ? -1 : 1;
+        if (a.status === 'pending' && b.status !== 'pending') return -1;
+        if (b.status === 'pending' && a.status !== 'pending') return 1;
+        return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+      });
+      setConsultations(mapped);
+      const unread = mapped.filter((c) => c.unread).length;
+      setUnreadCount(unread || countUnreadForLawyer(user));
+      return mapped;
+    },
+    [user, displayName]
+  );
+
+  const loadConsultations = useCallback(async () => {
+    setConsultationsLoading(true);
+    try {
+      let remoteRows = [];
+      if (hasRealToken()) {
+        try {
+          const payload = await apiGet('/api/v1/consultations/mine');
+          remoteRows = payload?.data || [];
+        } catch (err) {
+          setFeedbackMessage(
+            err?.message || 'Live server unavailable — showing local + client bookings'
+          );
+        }
+      }
+      const mapped = applyMergedConsultations(remoteRows);
+      if (mapped.some((c) => c.unread)) {
+        setFeedbackMessage(`${mapped.filter((c) => c.unread).length} new request(s) need action`);
+      }
+    } catch {
+      applyMergedConsultations([]);
+      setFeedbackMessage('Using offline consultations');
+    } finally {
+      setConsultationsLoading(false);
+    }
+  }, [applyMergedConsultations]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      loadConsultations();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [loadConsultations]);
+
+  // Live refresh when client books in another tab/window of same browser
+  useEffect(() => {
+    const unsub = onConsultationsUpdated(() => {
+      loadConsultations();
+    });
+    return unsub;
+  }, [loadConsultations]);
+
+  useEffect(() => {
+    if (activeSection !== 'consultations' && activeSection !== 'case-files' && activeSection !== 'analytics') {
+      return undefined;
+    }
+    const t = window.setTimeout(() => {
+      loadConsultations();
+      refreshLocalCases();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [activeSection, loadConsultations, refreshLocalCases]);
+
+  // When lawyer opens Consultations, keep pending bold until they act; mark viewed after short delay optional — we mark on accept/decline/open only
+
+  const handleSendAiMessage = async (e) => {
     e.preventDefault();
-    if (!aiInput.trim()) return;
+    if (!aiInput.trim() || aiBusy) return;
 
     const userMessage = {
       id: Date.now(),
@@ -818,17 +2054,49 @@ export default function LawyerDashboard() {
     };
 
     setAiMessages(prev => [...prev, userMessage]);
+    const question = aiInput;
     setAiInput('');
+    setAiBusy(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const data = await askLegalAi(question);
+      const text =
+        data.analysis ||
+        data.answer ||
+        'I could not generate a response. Try Case Comparisons for structured research.';
       setAiMessages(prev => [...prev, {
         id: Date.now() + 1,
         sender: 'ai',
-        text: 'I am analyzing your query against your case history and the latest precedents. This feature is currently in demonstration mode.',
+        text,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }]);
-    }, 1000);
+    } catch (err) {
+      setAiMessages(prev => [...prev, {
+        id: Date.now() + 1,
+        sender: 'ai',
+        text: err.message || 'AI backend is unavailable. Check GROQ_API_KEY / GEMINI keys and restart the API.',
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const handleHeaderSearch = (e) => {
+    if (e.key !== 'Enter') return;
+    const q = headerSearch.trim().toLowerCase();
+    if (!q) return;
+    if (q.includes('consult')) setActiveSection('consultations');
+    else if (q.includes('doc')) setActiveSection('documents');
+    else if (q.includes('compar') || q.includes('precedent')) setActiveSection('case-comparisons');
+    else if (q.includes('analytic') || q.includes('report')) setActiveSection('analytics');
+    else if (q.includes('profile') || q.includes('setting')) setActiveSection('profile');
+    else if (q.includes('case') || q.includes('file') || q.includes('draft')) setActiveSection('case-files');
+    else {
+      setActiveSection('consultations');
+      setConsultationQuery(headerSearch.trim());
+    }
+    setFeedbackMessage(`Navigated for “${headerSearch.trim()}”`);
   };
 
   useEffect(() => {
@@ -850,33 +2118,238 @@ export default function LawyerDashboard() {
     .filter((request) => {
       const normalized = consultationQuery.trim().toLowerCase();
       const matchesSearch = !normalized || [request.clientName, request.category, request.message].join(' ').toLowerCase().includes(normalized);
-      const matchesFilter = consultationFilter === 'all' || request.status === consultationFilter;
+      const status = normalizeStatus(request.status);
+      const matchesFilter =
+        consultationFilter === 'all' ||
+        status === consultationFilter ||
+        (consultationFilter === 'accepted' && status === 'active') ||
+        (consultationFilter === 'declined' && status === 'cancelled');
       return matchesSearch && matchesFilter;
     })
     .sort((a, b) => {
       if (consultationSort === 'latest') {
-        return b.id.localeCompare(a.id);
+        return String(b.createdAt || b.id).localeCompare(String(a.createdAt || a.id));
       }
       if (consultationSort === 'oldest') {
-        return a.id.localeCompare(b.id);
+        return String(a.createdAt || a.id).localeCompare(String(b.createdAt || b.id));
       }
       return a.clientName.localeCompare(b.clientName);
     });
 
-  const pendingCount = consultations.filter((request) => request.status === 'pending').length;
-  const activeCount = consultations.filter((request) => request.status === 'accepted').length;
-  const passiveCount = consultations.filter((request) => request.status !== 'accepted').length;
-  const activeConsultations = filteredConsultations.filter((request) => request.status === 'accepted');
-  const passiveConsultations = filteredConsultations.filter((request) => request.status !== 'accepted');
+  const isHeldInChat = useCallback(
+    (id) => {
+      const key = String(id || '');
+      if (!key) return false;
+      if (chatHoldIds.has(key)) return true;
+      if (chatTarget && String(chatTarget.id) === key) return true;
+      return false;
+    },
+    [chatHoldIds, chatTarget]
+  );
 
-  const updateRequestStatus = (requestId, status) => {
-    setConsultations((prev) => prev.map((request) => (request.id === requestId ? { ...request, status } : request)));
-    setFeedbackMessage(status === 'accepted' ? 'Request accepted' : 'Request declined');
+  const pendingCount = consultations.filter((request) => normalizeStatus(request.status) === 'pending').length;
+  const activeCount = consultations.filter(
+    (request) => normalizeStatus(request.status) === 'active' && !isHeldInChat(request.id)
+  ).length;
+  const completedCount = consultations.filter((request) => normalizeStatus(request.status) === 'completed').length;
+  // Active list: only settled active (not mid-chat after Accept)
+  const activeConsultations = filteredConsultations.filter(
+    (request) => normalizeStatus(request.status) === 'active' && !isHeldInChat(request.id)
+  );
+  // Pending + mid-chat holds stay here so Accept does not jump the card away
+  const passiveConsultations = filteredConsultations.filter((request) => {
+    if (isHeldInChat(request.id)) return true;
+    return normalizeStatus(request.status) !== 'active';
+  });
+
+  const recentActivity = useMemo(() => {
+    return consultations.slice(0, 6).map((c) => ({
+      id: c.id,
+      title: `${statusLabel(c.status)} · ${c.clientName}`,
+      detail: `${c.category} · ${c.message?.slice(0, 80) || 'Consultation'}`,
+      timeAgo: formatRelativeTime(c.createdAt),
+      type: normalizeStatus(c.status) === 'active' ? 'success' : normalizeStatus(c.status) === 'pending' ? 'message' : 'verify',
+    }));
+  }, [consultations]);
+
+  const scheduledToday = useMemo(() => {
+    return consultations
+      .filter((c) => normalizeStatus(c.status) === 'active')
+      .slice(0, 4)
+      .map((c) => ({
+        id: c.id,
+        time: c.scheduledAt
+          ? new Date(c.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          : 'Chat available',
+        title: c.clientName,
+        detail: `${c.category} · ${c.mode || 'chat'}`,
+        active: true,
+      }));
+  }, [consultations]);
+
+  const applyLocalStatus = (requestId, nextStatus) => {
+    updateLocalConsultationStatus(requestId, nextStatus);
+    updateSharedConsultationStatus(requestId, nextStatus);
+    markConsultationRead(requestId);
+    setConsultations((prev) =>
+      prev.map((c) =>
+        String(c.id) === String(requestId)
+          ? {
+              ...c,
+              status: nextStatus,
+              statusLabel: statusLabel(nextStatus),
+              unread: false,
+            }
+          : c
+      )
+    );
+    setUnreadCount((n) => Math.max(0, n - 1));
+  };
+
+  const updateRequestStatus = async (requestId, status) => {
+    try {
+      if (status === 'accepted' || status === 'active') {
+        // Prefer acceptAndStartChat for UX — this path kept for compatibility
+        try {
+          if (!String(requestId).startsWith('booking_') && !String(requestId).startsWith('demo-')) {
+            await apiPost(`/api/v1/consultations/${requestId}/accept`);
+          }
+        } catch {
+          // offline ok
+        }
+        applyLocalStatus(requestId, 'active');
+        setFeedbackMessage('Request accepted');
+      } else if (status === 'declined' || status === 'cancelled') {
+        try {
+          if (!String(requestId).startsWith('booking_') && !String(requestId).startsWith('demo-')) {
+            await apiPost(`/api/v1/consultations/${requestId}/decline`);
+          }
+        } catch {
+          // offline ok
+        }
+        applyLocalStatus(requestId, 'cancelled');
+        setFeedbackMessage('Request declined');
+        await loadConsultations();
+      } else {
+        setFeedbackMessage('Unsupported action');
+      }
+    } catch (err) {
+      setFeedbackMessage(err.message || 'Action failed');
+    }
+  };
+
+  /**
+   * Accept → open chat immediately.
+   * Card stays under Pending / "In session" until the lawyer closes chat,
+   * then it appears under Active Consultations (no jarring jump mid-accept).
+   */
+  const acceptAndStartChat = async (request) => {
+    if (!request?.id) return;
+    setAcceptingId(request.id);
+    const id = request.id;
+    let acceptedOk = true;
+
+    try {
+      if (!String(id).startsWith('booking_') && !String(id).startsWith('demo-')) {
+        try {
+          await apiPost(`/api/v1/consultations/${id}/accept`);
+        } catch {
+          acceptedOk = false;
+        }
+      }
+      applyLocalStatus(id, 'active');
+      setChatHoldIds((prev) => {
+        const next = new Set(prev);
+        next.add(String(id));
+        return next;
+      });
+      setChatTarget({
+        ...request,
+        status: 'active',
+        statusLabel: statusLabel('active'),
+        unread: false,
+      });
+      setFeedbackMessage(
+        acceptedOk
+          ? `Chat opened with ${request.clientName || 'client'}. Consultation moves to Active when you close chat.`
+          : `Chat opened (offline accept). Finish the conversation, then close to settle the list.`
+      );
+    } catch (err) {
+      setFeedbackMessage(err.message || 'Could not accept request');
+    } finally {
+      setAcceptingId(null);
+    }
+  };
+
+  const completeConsultation = async (requestId) => {
+    try {
+      if (!String(requestId).startsWith('booking_') && !String(requestId).startsWith('demo-')) {
+        await apiPost(`/api/v1/consultations/${requestId}/complete`);
+      }
+      updateSharedConsultationStatus(requestId, 'completed');
+      updateLocalConsultationStatus(requestId, 'completed');
+      markConsultationRead(requestId);
+      setChatHoldIds((prev) => {
+        const next = new Set(prev);
+        next.delete(String(requestId));
+        return next;
+      });
+      setFeedbackMessage('Marked completed');
+      await loadConsultations();
+    } catch {
+      updateSharedConsultationStatus(requestId, 'completed');
+      updateLocalConsultationStatus(requestId, 'completed');
+      setFeedbackMessage('Marked completed (offline)');
+      await loadConsultations();
+    }
   };
 
   const openChat = (request) => {
-    setFeedbackMessage(`Opening chat with ${request.clientName}`);
+    const st = normalizeStatus(request.status);
+    if (st !== 'active' && st !== 'pending') {
+      setFeedbackMessage('This consultation is closed');
+      return;
+    }
+    if (st === 'pending') {
+      // Accept + open in one step
+      acceptAndStartChat(request);
+      return;
+    }
+    setChatHoldIds((prev) => {
+      const next = new Set(prev);
+      next.add(String(request.id));
+      return next;
+    });
+    setChatTarget(request);
   };
+
+  const closeChatSession = () => {
+    const closed = chatTarget;
+    setChatTarget(null);
+    if (!closed?.id) return;
+    setChatHoldIds((prev) => {
+      const next = new Set(prev);
+      next.delete(String(closed.id));
+      return next;
+    });
+    // Now the card settles into Active Consultations
+    if (normalizeStatus(closed.status) === 'active' || normalizeStatus(
+      consultations.find((c) => String(c.id) === String(closed.id))?.status
+    ) === 'active') {
+      setFeedbackMessage(
+        `Session with ${closed.clientName || 'client'} saved under Active Consultations`
+      );
+    }
+    // Soft refresh without wiping UI
+    loadConsultations();
+  };
+
+  const todayLabel = new Date().toLocaleDateString('en-IN', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
 
   if (approvalStatus === 'pending') {
     return <PendingScreen onRefresh={() => setApprovalStatus('approved')} />;
@@ -887,63 +2360,107 @@ export default function LawyerDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#faf8ff] text-slate-900">
+    <div className="min-h-screen bg-[#f6f7fb] text-slate-900">
       <SideNav
         activeSection={activeSection}
         onSectionChange={setActiveSection}
         onLogout={handleLogout}
         onOpenNewCase={() => setIsNewCaseModalOpen(true)}
-        displayName={user?.name || 'Adv. Priya Sharma'}
+        displayName={displayName}
+        subtitle={sidebarSubtitle}
+        unreadConsultations={unreadCount}
       />
 
-      <main className="ml-[280px] min-h-screen">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6 shadow-sm">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+      <main className="min-h-screen min-w-0 pl-[260px] lg:pl-[280px]">
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-slate-200/80 bg-white/95 px-4 shadow-sm backdrop-blur sm:h-16 sm:px-6">
+          <div className="relative min-w-0 flex-1 max-w-md">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input
-              className="w-full rounded-lg bg-slate-50 py-2 pl-10 pr-4 text-sm outline-none ring-0 transition-all focus:ring-2 focus:ring-blue-300"
-              placeholder="Search case files, clients..."
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-200/60"
+              placeholder="Search sections or clients… (press Enter)"
               type="text"
+              value={headerSearch}
+              onChange={(e) => setHeaderSearch(e.target.value)}
+              onKeyDown={handleHeaderSearch}
             />
           </div>
-          <div className="flex items-center gap-4">
-            <button className="rounded-full p-2 text-slate-500 transition-transform hover:bg-slate-50 active:scale-95"><Bell size={18} /></button>
-            <button className="rounded-full p-2 text-slate-500 transition-transform hover:bg-slate-50 active:scale-95"><Settings size={18} /></button>
-            <button className="rounded-full p-2 text-slate-500 transition-transform hover:bg-slate-50 active:scale-95"><CircleHelp size={18} /></button>
-            <div className="h-8 w-px bg-slate-200" />
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">PS</div>
-              <span className="text-sm font-medium text-slate-900">Lawyer Dashboard</span>
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveSection('consultations')}
+              className="relative rounded-full p-2 text-slate-500 transition-transform hover:bg-slate-50 active:scale-95"
+              aria-label="Consultations"
+            >
+              <Bell size={18} />
+              {unreadCount > 0 && (
+                <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-black text-white">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection('profile')}
+              className="rounded-full p-2 text-slate-500 transition-transform hover:bg-slate-50 active:scale-95"
+              aria-label="Settings"
+            >
+              <Settings size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAIChatOpen(true)}
+              className="rounded-full p-2 text-slate-500 transition-transform hover:bg-slate-50 active:scale-95"
+              aria-label="Help"
+            >
+              <CircleHelp size={18} />
+            </button>
+            <div className="mx-1 hidden h-8 w-px bg-slate-200 sm:block" />
+            <div className="hidden items-center gap-2 sm:flex">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+                {(displayName || 'LP').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join('')}
+              </div>
+              <div className="min-w-0">
+                <p className="max-w-[140px] truncate text-sm font-semibold text-slate-900">{displayName}</p>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">Dashboard</p>
+              </div>
             </div>
           </div>
         </header>
 
-        <div className="mx-auto max-w-[1440px] p-8">
+        <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
           {activeSection === 'dashboard' ? (
             <>
               <div className="mb-8 flex items-end justify-between">
                 <div>
-                  <h1 className="text-3xl font-semibold text-[#0f2d5e]">Welcome back, Adv. Priya Sharma</h1>
+                  <h1 className="text-3xl font-semibold text-[#0f2d5e]">Welcome back, {displayName}</h1>
                   <div className="mt-1 flex items-center gap-2 text-slate-600">
                     <CalendarDays size={16} />
-                    <p>Monday, October 23, 2023</p>
+                    <p>{todayLabel}</p>
                   </div>
                 </div>
                 <div className="flex gap-3">
-                  <button className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-300">
-                    Export Report
+                  <button
+                    type="button"
+                    onClick={loadConsultations}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-300"
+                  >
+                    Refresh
                   </button>
-                  <button className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-800">
-                    View Schedule
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('consultations')}
+                    className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-800"
+                  >
+                    {unreadCount > 0 ? `View ${unreadCount} new request${unreadCount === 1 ? '' : 's'}` : 'View consultations'}
                   </button>
                 </div>
               </div>
 
               <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-                <MetricCard label="Consultations This Month" value="18" badge="+12%" accent="blue" icon={CalendarCheck2} />
-                <MetricCard label="Pending Requests" value="3" badge="Action Required" accent="orange" icon={Clock3} />
-                <MetricCard label="Average Rating" value="4.7" badge="Top 5% Rank" accent="yellow" icon={Star} />
-                <MetricCard label="Response Rate" value="92%" badge="Excellent" accent="teal" icon={Zap} />
+                <MetricCard label="Total consultations" value={String(consultations.length)} badge="All time" accent="blue" icon={CalendarCheck2} />
+                <MetricCard label="Pending requests" value={String(pendingCount)} badge={unreadCount ? `${unreadCount} new` : pendingCount ? 'Action required' : 'Clear'} accent="orange" icon={Clock3} />
+                <MetricCard label="Active chats" value={String(activeCount)} badge="Live" accent="teal" icon={MessageCircle} />
+                <MetricCard label="Completed" value={String(completedCount)} badge="Closed" accent="yellow" icon={CheckCircle2} />
               </div>
 
               <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
@@ -951,10 +2468,18 @@ export default function LawyerDashboard() {
                   <div className="flex h-full flex-col rounded-xl border border-slate-200 bg-white shadow-sm">
                     <div className="flex items-center justify-between border-b border-slate-100 p-6">
                       <h3 className="text-xl font-semibold text-[#0f2d5e]">Recent Activity</h3>
-                      <button className="text-sm font-medium text-blue-600 hover:underline">View All</button>
+                      <button type="button" onClick={() => setActiveSection('consultations')} className="text-sm font-medium text-blue-600 hover:underline">View All</button>
                     </div>
                     <div>
-                      {RECENT_ACTIVITY.map((item) => (
+                      {consultationsLoading && (
+                        <div className="flex items-center justify-center gap-2 p-8 text-sm text-slate-500">
+                          <Loader2 className="animate-spin" size={16} /> Loading…
+                        </div>
+                      )}
+                      {!consultationsLoading && recentActivity.length === 0 && (
+                        <p className="p-8 text-center text-sm text-slate-500">No consultation activity yet.</p>
+                      )}
+                      {recentActivity.map((item) => (
                         <ActivityItem key={item.id} item={item} />
                       ))}
                     </div>
@@ -963,9 +2488,14 @@ export default function LawyerDashboard() {
 
                 <aside className="space-y-6">
                   <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <h3 className="mb-4 text-xl font-semibold text-[#0f2d5e]">Today's Schedule</h3>
+                    <h3 className="mb-4 text-xl font-semibold text-[#0f2d5e]">Active matters</h3>
                     <div className="space-y-4">
-                      {TODAY_SCHEDULE.map((meeting) => (
+                      {scheduledToday.length === 0 && (
+                        <p className="text-sm text-slate-500">
+                          No active sessions. Accept chat requests from Consultations.
+                        </p>
+                      )}
+                      {scheduledToday.map((meeting) => (
                         <div key={meeting.id} className={`border-l-4 pl-4 ${meeting.active ? 'border-blue-600' : 'border-slate-200'}`}>
                           <p className="text-xs font-bold uppercase text-slate-500">{meeting.time}</p>
                           <p className="font-semibold text-slate-900">{meeting.title}</p>
@@ -973,8 +2503,12 @@ export default function LawyerDashboard() {
                         </div>
                       ))}
                     </div>
-                    <button className="mt-6 w-full rounded-lg border border-slate-200 bg-slate-50 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100">
-                      Manage Calendar
+                    <button
+                      type="button"
+                      onClick={() => setActiveSection('consultations')}
+                      className="mt-6 w-full rounded-lg border border-slate-200 bg-slate-50 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
+                    >
+                      Open consultations
                     </button>
                   </div>
                   <div className="group relative flex h-[240px] flex-col justify-end overflow-hidden rounded-xl bg-[#0f2d5e] p-6 text-white">
@@ -982,8 +2516,8 @@ export default function LawyerDashboard() {
                     <div className="absolute -right-8 -top-8 h-36 w-36 rounded-full bg-blue-400/20 blur-2xl" />
                     <div className="relative z-10">
                       <h4 className="mb-2 text-xl font-bold">LexPrecise AI Assistant</h4>
-                      <p className="mb-4 text-sm text-blue-200">Our new case summary tool is now available for premium members.</p>
-                      <button className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-400">Try Now</button>
+                      <p className="mb-4 text-sm text-blue-200">Strategy help and case comparisons are available in your workspace.</p>
+                      <button type="button" onClick={() => setIsAIChatOpen(true)} className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-400">Try Now</button>
                     </div>
                   </div>
                 </aside>
@@ -994,23 +2528,49 @@ export default function LawyerDashboard() {
               <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                 <div>
                   <h2 className="text-3xl font-semibold text-[#0f2d5e]">Consultations</h2>
-                  <p className="mt-1 text-sm text-slate-500">Manage active consultations and review pending or passive requests.</p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Client bookings appear here. New unread requests stay bold until you accept or decline.
+                  </p>
                 </div>
-                <div className="grid grid-cols-3 gap-3 sm:flex">
-                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-center shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Active</p>
-                    <p className="text-xl font-bold text-emerald-700">{activeCount}</p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-center shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Pending</p>
-                    <p className="text-xl font-bold text-[#0f2d5e]">{pendingCount}</p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-center shadow-sm">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Passive</p>
-                    <p className="text-xl font-bold text-slate-700">{passiveCount}</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      loadConsultations();
+                      setFeedbackMessage('Consultations refreshed');
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+                  >
+                    <Loader2 size={14} className={consultationsLoading ? 'animate-spin' : ''} />
+                    Refresh
+                  </button>
+                  <div className="grid grid-cols-3 gap-2 sm:flex">
+                    <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-center shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Active</p>
+                      <p className="text-xl font-bold text-emerald-700">{activeCount}</p>
+                    </div>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-center shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Pending</p>
+                      <p className="text-xl font-black text-amber-800">{pendingCount}</p>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-center shadow-sm">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">New</p>
+                      <p className="text-xl font-black text-rose-600">{unreadCount}</p>
+                    </div>
                   </div>
                 </div>
               </div>
+
+              {unreadCount > 0 && (
+                <div className="flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="font-bold">
+                    {unreadCount} new consultation request{unreadCount === 1 ? '' : 's'} need your action
+                  </p>
+                  <p className="text-xs font-medium text-amber-800">
+                    Accept opens chat immediately — the request moves to Active only after you close the chat.
+                  </p>
+                </div>
+              )}
 
               <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
                 <div className="relative flex-1">
@@ -1034,8 +2594,9 @@ export default function LawyerDashboard() {
                     >
                       <option value="all">All</option>
                       <option value="pending">Pending</option>
-                      <option value="accepted">Accepted</option>
-                      <option value="declined">Declined</option>
+                      <option value="active">Active</option>
+                      <option value="cancelled">Cancelled</option>
+                      <option value="completed">Completed</option>
                     </select>
                   </label>
 
@@ -1061,11 +2622,18 @@ export default function LawyerDashboard() {
                     Active Consultations
                   </h3>
                   <div className="space-y-4">
-                    {activeConsultations.length ? activeConsultations.map((request) => (
+                    {consultationsLoading && (
+                      <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-500">
+                        <Loader2 className="animate-spin" size={16} /> Loading consultations…
+                      </div>
+                    )}
+                    {!consultationsLoading && activeConsultations.length ? activeConsultations.map((request) => (
                       <article key={request.id} className="rounded-xl border border-l-4 border-l-blue-600 border-slate-200 bg-white p-5 shadow-sm transition-all">
                         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                           <div className="flex items-start gap-3">
-                            <img src={request.avatar} alt={request.clientName} className="h-12 w-12 rounded-full border border-slate-200 object-cover" />
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 bg-blue-50 text-sm font-bold text-blue-700">
+                              {(request.clientName || 'C').slice(0, 1).toUpperCase()}
+                            </div>
                             <div>
                               <div className="flex flex-wrap items-center gap-2">
                                 <h3 className="text-lg font-semibold text-slate-900">{request.clientName}</h3>
@@ -1077,19 +2645,29 @@ export default function LawyerDashboard() {
                               </div>
                             </div>
                           </div>
-                          <button
-                            onClick={() => openChat(request)}
-                            className="inline-flex items-center gap-1 rounded-lg bg-[#0f2d5e] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#143974]"
-                          >
-                            <MessageCircle size={16} />
-                            Open Chat
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openChat(request)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-[#0f2d5e] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#143974]"
+                            >
+                              <MessageCircle size={16} />
+                              Open Chat
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => completeConsultation(request.id)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                              Complete
+                            </button>
+                          </div>
                         </div>
                         <p className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm italic leading-relaxed text-slate-700">
-                          "{request.message}"
+                          &quot;{request.message}&quot;
                         </p>
                       </article>
-                    )) : (
+                    )) : !consultationsLoading && (
                       <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
                         No active consultations match your current filters.
                       </div>
@@ -1101,41 +2679,101 @@ export default function LawyerDashboard() {
                   <h3 className="mb-3 flex items-center gap-2 text-lg font-semibold text-slate-900">
                     <span className="h-2 w-2 rounded-full bg-amber-500" />
                     Pending / Passive Consultations
+                    {unreadCount > 0 && (
+                      <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                        {unreadCount} unread
+                      </span>
+                    )}
                   </h3>
                   <div className="space-y-4">
-                    {passiveConsultations.length ? passiveConsultations.map((request) => (
-                      <article key={request.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-slate-300">
+                    {passiveConsultations.length ? passiveConsultations.map((request) => {
+                      const status = normalizeStatus(request.status);
+                      const inSession = isHeldInChat(request.id);
+                      const isNew = Boolean(request.unread) && status === 'pending' && !inSession;
+                      return (
+                      <article
+                        key={request.id}
+                        className={`rounded-xl border p-5 shadow-sm transition-all ${
+                          inSession
+                            ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200/50'
+                            : isNew
+                            ? 'border-amber-400 bg-amber-50/60 ring-2 ring-amber-300/40'
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
                         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                           <div className="flex items-start gap-3">
-                            <img src={request.avatar} alt={request.clientName} className="h-12 w-12 rounded-full border border-slate-200 object-cover" />
+                            <div className={`flex h-12 w-12 items-center justify-center rounded-full border text-sm font-bold ${
+                              inSession
+                                ? 'border-blue-300 bg-blue-100 text-blue-800'
+                                : isNew
+                                ? 'border-amber-300 bg-amber-100 text-amber-900'
+                                : 'border-slate-200 bg-slate-50 text-slate-600'
+                            }`}>
+                              {(request.clientName || 'C').slice(0, 1).toUpperCase()}
+                            </div>
                             <div>
                               <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="text-lg font-semibold text-slate-900">{request.clientName}</h3>
-                                {request.status === 'pending' && (
+                                <h3 className={`text-lg text-slate-900 ${isNew || inSession ? 'font-black' : 'font-semibold'}`}>
+                                  {request.clientName}
+                                </h3>
+                                {inSession && (
+                                  <span className="rounded-full bg-blue-700 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                                    In chat
+                                  </span>
+                                )}
+                                {isNew && (
+                                  <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                                    New
+                                  </span>
+                                )}
+                                {status === 'pending' && !inSession && (
                                   <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">Pending</span>
                                 )}
-                                {request.status === 'declined' && (
-                                  <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700">Declined</span>
+                                {status === 'cancelled' && (
+                                  <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700">Cancelled</span>
+                                )}
+                                {status === 'completed' && (
+                                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-600">Completed</span>
                                 )}
                               </div>
                               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                                 <span className="rounded bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">{request.category}</span>
                                 <span>• {request.submittedAt}</span>
+                                {inSession && (
+                                  <span className="font-semibold text-blue-700">· Chat open — closes to Active</span>
+                                )}
                               </div>
                             </div>
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2">
-                            {request.status === 'pending' ? (
+                            {inSession ? (
+                              <button
+                                type="button"
+                                onClick={() => openChat(request)}
+                                className="inline-flex items-center gap-1 rounded-lg bg-[#0f2d5e] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-[#143974]"
+                              >
+                                <MessageCircle size={16} />
+                                Return to chat
+                              </button>
+                            ) : status === 'pending' ? (
                               <>
                                 <button
-                                  onClick={() => updateRequestStatus(request.id, 'accepted')}
-                                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+                                  type="button"
+                                  disabled={acceptingId === request.id}
+                                  onClick={() => acceptAndStartChat(request)}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
                                 >
-                                  <CheckCircle2 size={16} />
-                                  Accept
+                                  {acceptingId === request.id ? (
+                                    <Loader2 size={16} className="animate-spin" />
+                                  ) : (
+                                    <CheckCircle2 size={16} />
+                                  )}
+                                  Accept & chat
                                 </button>
                                 <button
+                                  type="button"
                                   onClick={() => updateRequestStatus(request.id, 'declined')}
                                   className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-50"
                                 >
@@ -1144,21 +2782,16 @@ export default function LawyerDashboard() {
                                 </button>
                               </>
                             ) : (
-                              <button
-                                onClick={() => updateRequestStatus(request.id, 'pending')}
-                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-                              >
-                                Reopen Request
-                              </button>
+                              <span className="text-xs font-medium text-slate-500">{statusLabel(status)}</span>
                             )}
                           </div>
                         </div>
 
                         <p className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm italic leading-relaxed text-slate-700">
-                          "{request.message}"
+                          &quot;{request.message}&quot;
                         </p>
                       </article>
-                    )) : (
+                    ); }) : (
                       <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
                         No pending or passive consultations match your current filters.
                       </div>
@@ -1168,23 +2801,47 @@ export default function LawyerDashboard() {
               </div>
             </section>
           ) : activeSection === 'case-files' ? (
-            <CaseFilesSection onOpenNewCase={() => setIsNewCaseModalOpen(true)} />
+            <CaseFilesSection
+              consultations={consultations}
+              localCases={localCases}
+              onOpenNewCase={() => setIsNewCaseModalOpen(true)}
+              onOpenConsultations={() => setActiveSection('consultations')}
+              onRefreshCases={refreshLocalCases}
+              onSelectCase={(c) => setSelectedCaseDetail(c)}
+              onToast={setFeedbackMessage}
+            />
           ) : activeSection === 'documents' ? (
-            <DocumentsSection />
+            <DocumentsSection onToast={setFeedbackMessage} />
           ) : activeSection === 'case-comparisons' ? (
-            <CaseComparisonsSection 
-              sourceFilter={compSourceFilter} setSourceFilter={setCompSourceFilter}
-              precedents={compPrecedents} setPrecedents={setCompPrecedents}
-              aiMessages={compAiMessages} setAiMessages={setCompAiMessages}
-              aiInput={compAiInput} setAiInput={setCompAiInput}
-              searchQuery={compSearchQuery} setSearchQuery={setCompSearchQuery}
-              isSearching={isCompSearching} setIsSearching={setIsCompSearching}
+            <CaseComparisonsSection
+              localCases={localCases}
+              consultations={consultations}
+              onToast={setFeedbackMessage}
             />
           ) : activeSection === 'analytics' ? (
-            <AnalyticsSection />
+            <AnalyticsSection
+              consultations={consultations}
+              localCases={localCases}
+              onOpenConsultations={() => setActiveSection('consultations')}
+              onOpenCaseFiles={() => setActiveSection('case-files')}
+            />
           ) : activeSection === 'profile' ? (
-            <ProfileSection user={user} />
-          ) : null}
+            <ProfileSection
+              user={user}
+              consultationStats={{
+                active: activeCount,
+                pending: pendingCount,
+                completed: completedCount,
+              }}
+              onProfileSaved={(partial) => {
+                if (typeof updateUser === 'function') updateUser(partial);
+              }}
+            />
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
+              Unknown section. <button type="button" className="font-semibold text-blue-600" onClick={() => setActiveSection('dashboard')}>Return to Dashboard</button>
+            </div>
+          )}
         </div>
 
         {/* Floating Action Button */}
@@ -1205,7 +2862,7 @@ export default function LawyerDashboard() {
                 </div>
                 <div>
                   <h3 className="text-sm font-bold">LexPrecise AI</h3>
-                  <p className="text-[10px] text-blue-200">Context: Adv. Priya Sharma</p>
+                  <p className="text-[10px] text-blue-200">Context: {displayName}</p>
                 </div>
               </div>
               <button onClick={() => setIsAIChatOpen(false)} className="rounded-full p-1 hover:bg-white/10 transition-colors">
@@ -1233,8 +2890,8 @@ export default function LawyerDashboard() {
                   placeholder="Ask your AI assistant..."
                   className="flex-1 bg-transparent text-sm outline-none"
                 />
-                <button type="submit" disabled={!aiInput.trim()} className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-700 transition-colors">
-                  <Send size={14} />
+                <button type="submit" disabled={!aiInput.trim() || aiBusy} className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white disabled:opacity-50 hover:bg-blue-700 transition-colors">
+                  {aiBusy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                 </button>
               </div>
             </form>
@@ -1247,8 +2904,78 @@ export default function LawyerDashboard() {
           </div>
         )}
 
+        {chatTarget && (
+          <ConsultationChat
+            consultationId={chatTarget.id}
+            title={`Chat with ${chatTarget.clientName}`}
+            onClose={closeChatSession}
+          />
+        )}
+
         {isNewCaseModalOpen && (
-          <NewCaseModal onClose={() => setIsNewCaseModalOpen(false)} />
+          <NewCaseModal
+            onClose={() => setIsNewCaseModalOpen(false)}
+            onGoToConsultations={() => {
+              setIsNewCaseModalOpen(false);
+              setActiveSection('consultations');
+            }}
+            onGoToCaseFiles={() => {
+              setIsNewCaseModalOpen(false);
+              setActiveSection('case-files');
+            }}
+            onSaved={() => {
+              refreshLocalCases();
+              setFeedbackMessage('Case saved to Case Files');
+            }}
+          />
+        )}
+
+        {selectedCaseDetail && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-bold text-[#0f2d5e]">{selectedCaseDetail.title || selectedCaseDetail.clientName}</h3>
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    {selectedCaseDetail.category || 'General Law'} · Draft
+                  </p>
+                </div>
+                <button type="button" onClick={() => setSelectedCaseDetail(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">
+                {formatReadableText(selectedCaseDetail.facts || selectedCaseDetail.message).map((para, i) => (
+                  <p key={i} className="text-sm leading-relaxed text-slate-700">
+                    {para}
+                  </p>
+                ))}
+                {!selectedCaseDetail.facts && !selectedCaseDetail.message && (
+                  <p className="text-sm text-slate-500">No facts recorded.</p>
+                )}
+              </div>
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCaseDetail(null);
+                    setActiveSection('case-comparisons');
+                    setFeedbackMessage('Open Case Comparisons — select this matter plus another to compare');
+                  }}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Open comparisons
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedCaseDetail(null)}
+                  className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </main>
     </div>

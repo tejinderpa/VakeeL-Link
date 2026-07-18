@@ -1,21 +1,32 @@
 import { useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import useAuth from '../components/useAuth';
-import { ArrowRight, Mail, Lock, Shield, Scale } from 'lucide-react';
+import AuthBrandPanel from '../components/AuthBrandPanel';
+import { ArrowRight, Mail, Lock, Scale, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { API_BASE_URL, networkErrorMessage } from '../utils/api';
 
 const normalizeRole = (role) => {
   if (!role) return 'user';
-  return String(role).toLowerCase();
+  const value = String(role).toLowerCase();
+  if (value === 'lawyer' || value === 'advocate') return 'lawyer';
+  return 'user';
 };
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { login } = useAuth();
-  
+
+  const initialPortal =
+    searchParams.get('role') === 'lawyer' || location.state?.role === 'lawyer'
+      ? 'lawyer'
+      : 'client';
+
+  const [portal, setPortal] = useState(initialPortal);
   const [formData, setFormData] = useState({
     email: '',
-    password: ''
+    password: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -31,166 +42,262 @@ export default function Login() {
     setLoading(true);
     setError('');
 
+    const allowMock = String(import.meta.env.VITE_ALLOW_MOCK_AUTH || '').toLowerCase() === 'true';
+
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      const pendingRegistration = JSON.parse(localStorage.getItem('vakeellink_pending_registration') || 'null');
-      const role = normalizeRole(
-        pendingRegistration && pendingRegistration.email === formData.email
-          ? pendingRegistration.role
-          : (formData.email.includes('lawyer') ? 'lawyer' : 'user')
-      );
-      const userData = { email: formData.email, role, name: pendingRegistration?.fullName || 'Premium User' };
-      const token = 'mock_jwt_token';
-      login(userData, token);
-      if (role === 'lawyer') {
-        navigate('/dashboard/lawyer');
-      } else {
-        navigate('/dashboard/user');
+      let response;
+      try {
+        response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: formData.email.trim(),
+            password: formData.password,
+          }),
+        });
+      } catch (networkErr) {
+        throw new Error(networkErrorMessage(networkErr, API_BASE_URL));
       }
-    } catch {
-      setError('Invalid email or password');
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        let detail =
+          typeof data?.detail === 'string'
+            ? data.detail
+            : Array.isArray(data?.detail)
+              ? data.detail.map((d) => d.msg || JSON.stringify(d)).join(', ')
+              : typeof data?.message === 'string'
+                ? data.message
+                : 'Invalid email or password';
+
+        // Friendlier copy for the common Windows DNS failure against a dead Supabase host
+        if (/getaddrinfo|11001|failed to resolve|cannot reach supabase/i.test(detail)) {
+          detail =
+            'Cannot reach Supabase (DNS). Your SUPABASE_URL project host may be deleted or paused. ' +
+            'Fix backend/.env SUPABASE_URL from the Supabase dashboard, restart the API, then try again. ' +
+            'Or sign up again — the API will create an offline account while Supabase is down.';
+        }
+        if (response.status === 401 || /authentication failed|invalid credentials/i.test(detail)) {
+          detail =
+            portal === 'lawyer'
+              ? 'Invalid email or password for this advocate account. Use a lawyer signup (with Bar Council ID), or try the demo: lawyer@example.com / lawyer123'
+              : 'Invalid email or password. If you just registered offline, use the same email/password, or create an account first.';
+        }
+        throw new Error(detail);
+      }
+
+      const data = await response.json();
+      const apiRole = data.user?.role || data.role || 'client';
+      const role = normalizeRole(apiRole);
+      const fullName = data.user?.full_name || data.user?.name || formData.email.split('@')[0];
+      const userData = {
+        id: data.user?.id || data.user_id,
+        email: data.user?.email || formData.email.trim(),
+        role,
+        name: fullName,
+        full_name: fullName,
+      };
+
+      if (!data.access_token) {
+        throw new Error('Login succeeded but no access token was returned.');
+      }
+
+      // Portal is UI-only; the account role comes from the backend
+      if (portal === 'lawyer' && role !== 'lawyer') {
+        throw new Error(
+          'This account is registered as a client, not an advocate. ' +
+            'Sign up with role Advocate (Bar Council ID required), or switch to the Client portal.'
+        );
+      }
+      if (portal === 'client' && role === 'lawyer') {
+        // Still allow login; send them to the lawyer dashboard
+      }
+
+      login(userData, data.access_token);
+      localStorage.removeItem('vakeellink_pending_registration');
+
+      const redirect = location.state?.from || (role === 'lawyer' ? '/dashboard/lawyer' : '/dashboard/user');
+      navigate(redirect);
+    } catch (err) {
+      if (allowMock) {
+        const pendingRegistration = JSON.parse(
+          localStorage.getItem('vakeellink_pending_registration') || 'null'
+        );
+        const role = normalizeRole(
+          pendingRegistration && pendingRegistration.email === formData.email
+            ? pendingRegistration.role
+            : formData.email.includes('lawyer')
+              ? 'lawyer'
+              : portal === 'lawyer'
+                ? 'lawyer'
+                : 'user'
+        );
+        const userData = {
+          id: null,
+          email: formData.email,
+          role,
+          name: pendingRegistration?.fullName || 'Demo User',
+        };
+        login(userData, 'mock_jwt_token');
+        navigate(role === 'lawyer' ? '/dashboard/lawyer' : '/dashboard/user');
+        return;
+      }
+      setError(err.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4 md:p-8 font-inter">
-      {/* Decorative Glows */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-600/10 rounded-full blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/10 rounded-full blur-[120px]"></div>
-      </div>
+    <div className="min-h-screen bg-[#faf8ff] text-slate-900">
+      <div className="grid min-h-screen lg:grid-cols-2">
+        <AuthBrandPanel role={portal} mode="login" />
 
-      <div className="glass-effect rounded-[48px] border border-white/10 shadow-2xl flex flex-col md:flex-row w-full max-w-[1100px] overflow-hidden transform scale-95 origin-center">
-        {/* Left Side: Branding/Visual */}
-        <div className="w-full md:w-[50%] relative overflow-hidden hidden md:flex flex-col justify-between p-16">
-          <div className="absolute inset-0 z-0">
-             <img 
-               src="https://images.unsplash.com/photo-1589829545856-d10d557cf95f?q=80&w=2070&auto=format&fit=crop" 
-               alt="Legal background" 
-               className="w-full h-full object-cover opacity-20 grayscale"
-             />
-             <div className="absolute inset-0 bg-gradient-to-br from-[#020617] via-transparent to-indigo-900/20"></div>
-          </div>
-          
-          <div className="relative z-10">
-            <Link to="/" className="flex items-center gap-3 group">
-                <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/20 transition-transform group-hover:scale-110">
-                    <Scale size={24} className="text-white" />
-                </div>
-                <span className="text-xl font-black tracking-tighter text-white">Vakeel<span className="text-indigo-500">Link</span></span>
+        {/* Form panel */}
+        <div className="flex flex-col justify-center px-4 py-12 sm:px-8 lg:px-12 xl:px-20">
+          <div className="mx-auto w-full max-w-md">
+            <Link to="/" className="mb-8 flex items-center gap-2.5 lg:hidden">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#0f2d5e] text-white">
+                <Scale size={18} />
+              </div>
+              <span className="text-lg font-bold text-[#0f2d5e]">
+                Vakeel<span className="text-blue-600">Link</span>
+              </span>
             </Link>
-          </div>
 
-          <div className="relative z-10 space-y-6">
-            <h2 className="text-6xl font-black text-white leading-tight">Elite Legal <br /> <span className="text-indigo-500">Infrastructure.</span></h2>
-            <p className="text-slate-400 font-medium text-lg max-w-sm">Access advanced AI tools and the nation's most prestigious advocate network.</p>
-          </div>
+            <h1 className="text-3xl font-bold tracking-tight text-[#0f2d5e]">Welcome back</h1>
+            <p className="mt-2 text-sm text-slate-500">
+              Sign in to your {portal === 'lawyer' ? 'advocate' : 'client'} account.
+            </p>
 
-          <div className="relative z-10 pt-10 border-t border-white/5 flex gap-8">
-             <div className="flex flex-col gap-1">
-                <span className="text-2xl font-black text-white">500+</span>
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Vetted Experts</span>
-             </div>
-             <div className="flex flex-col gap-1">
-                <span className="text-2xl font-black text-white">4.9/5</span>
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Client Satisfaction</span>
-             </div>
-          </div>
-        </div>
-
-        {/* Right Side: Form */}
-        <div className="w-full md:w-[50%] p-10 md:p-20 flex flex-col justify-center bg-white/[0.02]">
-          <div className="mb-12">
-            <h1 className="text-4xl font-black text-white mb-4">Welcome Back.</h1>
-            <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Sign in to your premium legal dashboard</p>
-          </div>
-
-          {successMessage && (
-            <div className="mb-8 p-5 bg-emerald-500/10 border border-emerald-500/20 rounded-[20px] text-emerald-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-3">
-              <Shield size={18} />
-              {successMessage}
+            <div className="mt-6 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setPortal('client')}
+                className={`rounded-lg py-2.5 text-sm font-semibold transition-colors ${
+                  portal === 'client'
+                    ? 'bg-[#0f2d5e] text-white'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Client
+              </button>
+              <button
+                type="button"
+                onClick={() => setPortal('lawyer')}
+                className={`rounded-lg py-2.5 text-sm font-semibold transition-colors ${
+                  portal === 'lawyer'
+                    ? 'bg-[#0f2d5e] text-white'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Advocate
+              </button>
             </div>
-          )}
-          
-          {error && (
-            <div className="mb-8 p-5 bg-rose-500/10 border border-rose-500/20 rounded-[20px] text-rose-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-3">
-              <Shield size={18} />
-              {error}
-            </div>
-          )}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Authorized Email</label>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-6 flex items-center text-slate-500 group-focus-within:text-indigo-500 transition-colors">
-                  <Mail size={20} />
+            {successMessage && (
+              <div className="mt-6 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
+                <span>{successMessage}</span>
+              </div>
+            )}
+
+            {error && (
+              <div className="mt-6 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+              <div>
+                <label
+                  htmlFor="email"
+                  className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500"
+                >
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail
+                    size={18}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    id="email"
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    placeholder="you@example.com"
+                    className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    required
+                  />
                 </div>
-                <input 
-                  type="email" 
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder="name@institution.com" 
-                  className="w-full pl-16 pr-8 py-5 rounded-2xl bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/10 outline-none transition-all text-white font-bold"
-                  required
-                />
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <div className="flex justify-between items-center ml-4 mr-4">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Secret Key</label>
-                <Link to="#" className="text-[10px] font-black uppercase tracking-widest text-indigo-500 hover:text-white transition-colors">Recovery</Link>
-              </div>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-6 flex items-center text-slate-500 group-focus-within:text-indigo-500 transition-colors">
-                  <Lock size={20} />
+              <div>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label
+                    htmlFor="password"
+                    className="block text-xs font-bold uppercase tracking-wider text-slate-500"
+                  >
+                    Password
+                  </label>
+                  <Link to="#" className="text-xs font-semibold text-blue-700 hover:text-blue-800">
+                    Forgot password?
+                  </Link>
                 </div>
-                <input 
-                  type="password" 
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  placeholder="••••••••" 
-                  className="w-full pl-16 pr-8 py-5 rounded-2xl bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/10 outline-none transition-all text-white font-bold"
-                  required
-                />
+                <div className="relative">
+                  <Lock
+                    size={18}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    id="password"
+                    type="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    placeholder="••••••••"
+                    className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    required
+                  />
+                </div>
               </div>
-            </div>
 
-            <button 
-              type="submit" 
-              disabled={loading}
-              className="w-full py-5 rounded-[24px] bg-indigo-600 text-white font-black uppercase tracking-[0.2em] text-[11px] shadow-xl shadow-indigo-600/20 hover:bg-indigo-500 hover:-translate-y-0.5 transition-all relative overflow-hidden group disabled:opacity-50"
-            >
-              <div className="flex items-center justify-center gap-3">
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-700 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 disabled:opacity-50"
+              >
                 {loading ? (
-                  <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 ) : (
                   <>
-                    Initialize Dashboard
-                    <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                    Sign in
+                    <ArrowRight size={16} />
                   </>
                 )}
-              </div>
-            </button>
-          </form>
+              </button>
+            </form>
 
-          <div className="mt-12 flex items-center justify-center gap-4">
-            <div className="flex-1 h-px bg-white/5"></div>
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">New around here?</span>
-            <div className="flex-1 h-px bg-white/5"></div>
+            <p className="mt-8 text-center text-sm text-slate-500">
+              Don&apos;t have an account?{' '}
+              <Link
+                to={portal === 'lawyer' ? '/signup?role=lawyer' : '/signup'}
+                className="font-semibold text-blue-700 hover:text-blue-800"
+              >
+                Create one
+              </Link>
+            </p>
+
+            <p className="mt-4 text-center text-xs text-slate-400">
+              Demo advocate login: <span className="font-medium text-slate-500">lawyer@example.com</span>
+              {' / '}
+              <span className="font-medium text-slate-500">lawyer123</span>
+              . New advocates must sign up with a Bar Council ID (e.g. D/1234/2019).
+            </p>
           </div>
-
-          <Link 
-            to="/signup" 
-            className="mt-8 w-full py-5 rounded-[24px] border border-white/10 text-slate-400 font-black uppercase tracking-widest text-[10px] hover:bg-white/5 transition-all text-center"
-          >
-            Create Institutional Account
-          </Link>
         </div>
       </div>
     </div>

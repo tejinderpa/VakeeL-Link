@@ -1,17 +1,29 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.middleware.error_handler import register_error_handlers
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS configuration
+# CORS configuration (local Vite ports + common deploy frontends)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"], # React frontend
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -23,6 +35,98 @@ register_error_handlers(app)
 @app.get("/health", tags=["system"])
 def health_check():
     return {"status": "ok", "service": settings.PROJECT_NAME}
+
+
+@app.get("/health/rag", tags=["system"])
+def health_rag():
+    """
+    Diagnostics for retrieval + generation stack (no secrets).
+    Use this to verify Qdrant, local corpus, Supabase DNS, and LLM key presence.
+    """
+    import socket
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    report = {
+        "status": "ok",
+        "service": settings.PROJECT_NAME,
+        "embedding_model": settings.EMBEDDING_MODEL_NAME,
+        "use_local_first": bool(settings.USE_LOCAL_VECTOR_STORE),
+        "rag_min_hits": settings.RAG_MIN_HITS,
+        "rag_score_floor": settings.RAG_SCORE_FLOOR,
+        "rag_broaden": settings.RAG_BROADEN,
+        "rag_blend_local": settings.RAG_BLEND_LOCAL,
+        "groq_configured": bool((settings.GROQ_API_KEY or "").strip()),
+        "gemini_configured": bool(
+            (settings.GOOGLE_API_KEY or settings.GEMINI_API_KEY or "").strip()
+        ),
+        "qdrant_configured": bool((settings.QDRANT_URL or "").strip() and (settings.QDRANT_API_KEY or "").strip()),
+        "qdrant_reachable": False,
+        "qdrant_collections": [],
+        "qdrant_error": None,
+        "local_store_available": False,
+        "local_embeddings_dir": settings.LOCAL_EMBEDDINGS_DIR,
+        "local_corpus_dir": settings.LOCAL_CORPUS_DIR,
+        "local_embedding_files": 0,
+        "supabase_configured": bool((settings.SUPABASE_URL or "").strip()),
+        "supabase_reachable": False,
+        "supabase_error": None,
+    }
+
+    # Local corpus
+    emb_dir = Path(settings.LOCAL_EMBEDDINGS_DIR or "")
+    if emb_dir.is_dir():
+        npy = list(emb_dir.glob("embeddings_*.npy"))
+        report["local_embedding_files"] = len(npy)
+        report["local_store_available"] = len(npy) > 0
+
+    # Supabase DNS
+    try:
+        host = urlparse(settings.SUPABASE_URL or "").hostname
+        if host:
+            socket.getaddrinfo(host, 443)
+            report["supabase_reachable"] = True
+        else:
+            report["supabase_error"] = "SUPABASE_URL missing host"
+    except Exception as exc:
+        report["supabase_error"] = str(exc)
+        report["supabase_reachable"] = False
+
+    # Qdrant
+    if report["qdrant_configured"]:
+        try:
+            from qdrant_client import QdrantClient
+
+            client = QdrantClient(
+                url=(settings.QDRANT_URL or "").strip().strip('"').strip("'"),
+                api_key=(settings.QDRANT_API_KEY or "").strip().strip('"').strip("'"),
+                check_compatibility=False,
+                timeout=12,
+            )
+            cols = client.get_collections()
+            names = [c.name for c in (cols.collections or [])]
+            report["qdrant_reachable"] = True
+            report["qdrant_collections"] = names
+        except Exception as exc:
+            report["qdrant_error"] = str(exc)
+            report["qdrant_reachable"] = False
+
+    degraded = []
+    if not report["qdrant_reachable"] and not report["local_store_available"]:
+        degraded.append("no_vector_backend")
+    if not report["groq_configured"] and not report["gemini_configured"]:
+        degraded.append("no_llm_keys")
+    if not report["supabase_reachable"]:
+        degraded.append("supabase_unreachable")
+
+    if degraded:
+        report["status"] = "degraded"
+        report["degraded_reasons"] = degraded
+    else:
+        report["degraded_reasons"] = []
+
+    return report
+
 
 @app.get("/")
 def root():

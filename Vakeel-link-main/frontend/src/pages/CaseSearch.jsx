@@ -1,99 +1,117 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Search, 
-  ArrowRight, 
-  Scale, 
-  Gavel, 
-  Calendar, 
-  MapPin, 
-  Tag, 
-  FileText, 
-  Quote, 
-  X, 
+import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  Search,
+  ArrowRight,
+  Scale,
+  Gavel,
+  Calendar,
+  Tag,
+  FileText,
+  Quote,
+  X,
   CheckCircle2,
   Filter,
-  ChevronRight
+  Users,
+  MessageSquare,
+  Loader2,
+  Sparkles,
 } from 'lucide-react';
 import UserSidebar from '../components/UserSidebar';
+import { askLegalAi } from '../utils/legalAi';
 
 const MOCK_CASES = [
   {
     id: 1,
-    name: "Maneka Gandhi vs Union of India",
-    citation: "1978 AIR 597",
-    court: "Supreme Court",
+    name: 'Maneka Gandhi vs Union of India',
+    citation: '1978 AIR 597',
+    court: 'Supreme Court',
     year: 1978,
-    domain: "Constitutional Law",
-    judges: ["Justice Y.V. Chandrachud", "Justice V.R. Krishna Iyer"],
-    summary: "The court established that the procedure established by law must be just, fair, and reasonable, and not arbitrary, fanciful, or oppressive. This case significantly expanded the scope of Article 21.",
-    fullText: "This landmark judgment expanded the interpretation of Article 21 of the Indian Constitution. The Supreme Court held that the right to life and personal liberty cannot be curtailed except by a procedure that is just, fair, and reasonable. The court overruled the earlier A.K. Gopalan case and held that Fundamental Rights are not mutually exclusive but are interrelated. Justice V.R. Krishna Iyer observed that the expression 'procedure established by law' in Article 21 must be read in conjunction with Articles 14 and 19, creating what is now known as the 'golden triangle' of fundamental rights."
+    domain: 'Constitutional Law',
+    judges: ['Justice Y.V. Chandrachud', 'Justice V.R. Krishna Iyer'],
+    summary:
+      'The court established that the procedure established by law must be just, fair, and reasonable, and not arbitrary, fanciful, or oppressive. This case significantly expanded the scope of Article 21.',
+    fullText:
+      "This landmark judgment expanded the interpretation of Article 21 of the Indian Constitution. The Supreme Court held that the right to life and personal liberty cannot be curtailed except by a procedure that is just, fair, and reasonable. The court overruled the earlier A.K. Gopalan case and held that Fundamental Rights are not mutually exclusive but are interrelated. Justice V.R. Krishna Iyer observed that the expression 'procedure established by law' in Article 21 must be read in conjunction with Articles 14 and 19, creating what is now known as the 'golden triangle' of fundamental rights.",
   },
   {
     id: 2,
-    name: "Vishaka vs State of Rajasthan",
-    citation: "1997 (6) SCC 241",
-    court: "Supreme Court",
+    name: 'Vishaka vs State of Rajasthan',
+    citation: '1997 (6) SCC 241',
+    court: 'Supreme Court',
     year: 1997,
-    domain: "Constitutional Law",
-    judges: ["Justice J.S. Verma", "Justice Sujata Manohar"],
-    summary: "Landmark judgment that laid down guidelines to prevent sexual harassment of women at the workplace, before the enactment of the POSH Act.",
-    fullText: "In this landmark PIL, the Supreme Court of India laid down exhaustive guidelines — popularly known as the Vishaka Guidelines — to be mandatorily followed by employers to prevent and address sexual harassment of women at workplaces. The court held that gender equality and the right to work with dignity are Fundamental Rights under Articles 14, 15, and 21 of the Constitution. These guidelines remained the law of the land until the Sexual Harassment of Women at Workplace (Prevention, Prohibition and Redressal) Act, 2013 was enacted."
+    domain: 'Constitutional Law',
+    judges: ['Justice J.S. Verma', 'Justice Sujata Manohar'],
+    summary:
+      'Landmark judgment that laid down guidelines to prevent sexual harassment of women at the workplace, before the enactment of the POSH Act.',
+    fullText:
+      'In this landmark PIL, the Supreme Court of India laid down exhaustive guidelines — popularly known as the Vishaka Guidelines — to be mandatorily followed by employers to prevent and address sexual harassment of women at workplaces. The court held that gender equality and the right to work with dignity are Fundamental Rights under Articles 14, 15, and 21 of the Constitution. These guidelines remained the law of the land until the Sexual Harassment of Women at Workplace (Prevention, Prohibition and Redressal) Act, 2013 was enacted.',
   },
   {
     id: 3,
-    name: "State of Maharashtra vs Madhkar Narayan",
-    citation: "1991 AIR 207",
-    court: "Supreme Court",
+    name: 'State of Maharashtra vs Madhkar Narayan',
+    citation: '1991 AIR 207',
+    court: 'Supreme Court',
     year: 1991,
-    domain: "Criminal Law",
-    judges: ["Justice K.N. Singh"],
-    summary: "The court held that every woman is entitled to her privacy and no one can trespass into her privacy at any time.",
-    fullText: "The Supreme Court in this judgment strongly affirmed the right to privacy of women. The court categorically stated that every woman is entitled to sexual privacy and it is not open to any and every person to violate her privacy as and when he wishes. The judgment reinforced that consent is central to any sexual act and its absence constitutes a criminal offence regardless of the social standing or character of the woman."
+    domain: 'Criminal Law',
+    judges: ['Justice K.N. Singh'],
+    summary:
+      'The court held that every woman is entitled to her privacy and no one can trespass into her privacy at any time.',
+    fullText:
+      'The Supreme Court in this judgment strongly affirmed the right to privacy of women. The court categorically stated that every woman is entitled to sexual privacy and it is not open to any and every person to violate her privacy as and when he wishes. The judgment reinforced that consent is central to any sexual act and its absence constitutes a criminal offence regardless of the social standing or character of the woman.',
   },
   {
     id: 4,
-    name: "Lakhanpal vs National Insurance Co.",
-    citation: "2021 ACJ 1450",
-    court: "High Court",
+    name: 'Lakhanpal vs National Insurance Co.',
+    citation: '2021 ACJ 1450',
+    court: 'High Court',
     year: 2021,
-    domain: "Motor Accident",
-    judges: ["Justice Sureshwar Thakur"],
-    summary: "Compensation awarded for permanent disability in a motor accident claim. Court applied structured formula for loss of future earnings and medical expenses.",
-    fullText: "The claimant suffered 40% permanent disability following a road accident involving an uninsured vehicle. The High Court applied the multiplier method as laid down by the Supreme Court in Sarla Verma vs Delhi Transport Corporation. The court awarded enhanced compensation including loss of earning capacity, pain and suffering, and future medical expenses. The court emphasized that just compensation must be awarded without being niggardly and the victim's rehabilitation must be the primary consideration."
+    domain: 'Motor Accident',
+    judges: ['Justice Sureshwar Thakur'],
+    summary:
+      'Compensation awarded for permanent disability in a motor accident claim. Court applied structured formula for loss of future earnings and medical expenses.',
+    fullText:
+      "The claimant suffered 40% permanent disability following a road accident involving an uninsured vehicle. The High Court applied the multiplier method as laid down by the Supreme Court in Sarla Verma vs Delhi Transport Corporation. The court awarded enhanced compensation including loss of earning capacity, pain and suffering, and future medical expenses. The court emphasized that just compensation must be awarded without being niggardly and the victim's rehabilitation must be the primary consideration.",
   },
   {
     id: 5,
-    name: "Naveen Kohli vs Neelu Kohli",
-    citation: "2006 (4) SCC 558",
-    court: "Supreme Court",
+    name: 'Naveen Kohli vs Neelu Kohli',
+    citation: '2006 (4) SCC 558',
+    court: 'Supreme Court',
     year: 2006,
-    domain: "Family Law",
-    judges: ["Justice R.C. Lahoti", "Justice G.P. Mathur"],
-    summary: "The Supreme Court recommended amendment to the Hindu Marriage Act to include irretrievable breakdown of marriage as a ground for divorce.",
-    fullText: "The Supreme Court in this significant matrimonial case held that where there has been a complete breakdown of marital relationship, compelling the parties to live together would serve no useful purpose. The court recommended to the Parliament to consider adding irretrievable breakdown of marriage as an additional ground for divorce under the Hindu Marriage Act 1955. The judgment noted that both parties had been living separately for several years and forcing continuation of a dead marriage caused more harm than allowing a dignified separation."
+    domain: 'Family Law',
+    judges: ['Justice R.C. Lahoti', 'Justice G.P. Mathur'],
+    summary:
+      'The Supreme Court recommended amendment to the Hindu Marriage Act to include irretrievable breakdown of marriage as a ground for divorce.',
+    fullText:
+      'The Supreme Court in this significant matrimonial case held that where there has been a complete breakdown of marital relationship, compelling the parties to live together would serve no useful purpose. The court recommended to the Parliament to consider adding irretrievable breakdown of marriage as an additional ground for divorce under the Hindu Marriage Act 1955. The judgment noted that both parties had been living separately for several years and forcing continuation of a dead marriage caused more harm than allowing a dignified separation.',
   },
   {
     id: 6,
-    name: "S.P. Gupta vs President Of India And Ors.",
-    citation: "AIR 1982 SC 149",
-    court: "Supreme Court",
+    name: 'S.P. Gupta vs President Of India And Ors.',
+    citation: 'AIR 1982 SC 149',
+    court: 'Supreme Court',
     year: 1981,
-    domain: "Constitutional Law",
-    judges: ["Justice P.N. Bhagwati"],
-    summary: "Known as the Judges' Transfer case, it dealt with the independence of the judiciary and the appointment/transfer of judges.",
-    fullText: "This case is a cornerstone of judicial independence in India. Justice P.N. Bhagwati, writing for the majority, held that the 'opinion' of the Chief Justice of India does not have primacy over the executive in judicial appointments. However, he emphasized that any appointment must be made through a process of 'consultation' which must be effective and not a mere formality. This case also significantly liberalized the rule of 'locus standi', paving the way for Public Interest Litigation (PIL) in India."
+    domain: 'Constitutional Law',
+    judges: ['Justice P.N. Bhagwati'],
+    summary:
+      "Known as the Judges' Transfer case, it dealt with the independence of the judiciary and the appointment/transfer of judges.",
+    fullText:
+      "This case is a cornerstone of judicial independence in India. Justice P.N. Bhagwati, writing for the majority, held that the 'opinion' of the Chief Justice of India does not have primacy over the executive in judicial appointments. However, he emphasized that any appointment must be made through a process of 'consultation' which must be effective and not a mere formality. This case also significantly liberalized the rule of 'locus standi', paving the way for Public Interest Litigation (PIL) in India.",
   },
   {
     id: 7,
-    name: "Aruna Ramchandra Shanbaug vs Union Of India",
-    citation: "2011 (4) SCC 454",
-    court: "Supreme Court",
+    name: 'Aruna Ramchandra Shanbaug vs Union Of India',
+    citation: '2011 (4) SCC 454',
+    court: 'Supreme Court',
     year: 2011,
-    domain: "Criminal Law",
-    judges: ["Justice Markandey Katju", "Justice Gyan Sudha Misra"],
-    summary: "Landmark case on passive euthanasia in India. The court allowed passive euthanasia under strict guidelines.",
-    fullText: "In response to a petition filed by Pinki Virani for the mercy killing of Aruna Shanbaug, who had been in a vegetative state for 37 years, the Supreme Court of India laid down guidelines for passive euthanasia. The court distinguished between active and passive euthanasia, allowing the latter in exceptional circumstances under judicial supervision. It held that the right to life under Article 21 includes the right to live with dignity, which also extends to the process of dying."
-  }
+    domain: 'Criminal Law',
+    judges: ['Justice Markandey Katju', 'Justice Gyan Sudha Misra'],
+    summary:
+      'Landmark case on passive euthanasia in India. The court allowed passive euthanasia under strict guidelines.',
+    fullText:
+      'In response to a petition filed by Pinki Virani for the mercy killing of Aruna Shanbaug, who had been in a vegetative state for 37 years, the Supreme Court of India laid down guidelines for passive euthanasia. The court distinguished between active and passive euthanasia, allowing the latter in exceptional circumstances under judicial supervision. It held that the right to life under Article 21 includes the right to live with dignity, which also extends to the process of dying.',
+  },
 ];
 
 const CaseSearch = () => {
@@ -102,63 +120,78 @@ const CaseSearch = () => {
   const [activeCourt, setActiveCourt] = useState('All Courts');
   const [selectedCase, setSelectedCase] = useState(null);
   const [toast, setToast] = useState({ show: false, message: '' });
-  
-  // Filters state
+  const [aiHits, setAiHits] = useState([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiMeta, setAiMeta] = useState(null);
+
   const [tempFilters, setTempFilters] = useState({
     yearFrom: '',
     yearTo: '',
     judgeName: '',
-    domains: []
+    domains: [],
   });
 
   const [appliedFilters, setAppliedFilters] = useState({
     yearFrom: '',
     yearTo: '',
     judgeName: '',
-    domains: []
+    domains: [],
   });
 
   const [isTransitioning, setIsTransitioning] = useState(false);
 
   const domains = [
-    "Constitutional Law", 
-    "Criminal Law", 
-    "Consumer Law", 
-    "Family Law", 
-    "Labour Law", 
-    "Motor Accident"
+    'Constitutional Law',
+    'Criminal Law',
+    'Consumer Law',
+    'Family Law',
+    'Labour Law',
+    'Motor Accident',
   ];
 
   const getDomainStyles = (domain) => {
     switch (domain) {
-      case "Constitutional Law": return "bg-purple-500/10 text-purple-400";
-      case "Criminal Law": return "bg-red-500/10 text-red-400";
-      case "Family Law": return "bg-pink-500/10 text-pink-400";
-      case "Consumer Law": return "bg-emerald-500/10 text-emerald-400";
-      case "Labour Law": return "bg-orange-500/10 text-orange-400";
-      case "Motor Accident": return "bg-amber-500/10 text-amber-400";
-      default: return "bg-slate-500/10 text-slate-400";
+      case 'Constitutional Law':
+        return 'bg-purple-50 text-purple-700 border-purple-200';
+      case 'Criminal Law':
+        return 'bg-red-50 text-red-700 border-red-200';
+      case 'Family Law':
+        return 'bg-pink-50 text-pink-700 border-pink-200';
+      case 'Consumer Law':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'Labour Law':
+        return 'bg-orange-50 text-orange-700 border-orange-200';
+      case 'Motor Accident':
+        return 'bg-amber-50 text-amber-700 border-amber-200';
+      default:
+        return 'bg-slate-50 text-slate-600 border-slate-200';
     }
   };
 
   const filteredCases = useMemo(() => {
-    return MOCK_CASES.filter(c => {
-      // Search Query
-      const matchesSearch = searchQuery === '' || 
+    return MOCK_CASES.filter((c) => {
+      const matchesSearch =
+        searchQuery === '' ||
         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         c.citation.toLowerCase().includes(searchQuery.toLowerCase()) ||
         c.summary.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      // Court Tab
+
       const matchesCourt = activeCourt === 'All Courts' || c.court === activeCourt;
-      
-      // Sidebar Filters
-      const matchesYearFrom = appliedFilters.yearFrom === '' || c.year >= parseInt(appliedFilters.yearFrom);
-      const matchesYearTo = appliedFilters.yearTo === '' || c.year <= parseInt(appliedFilters.yearTo);
-      const matchesJudge = appliedFilters.judgeName === '' || c.judges.some(j => j.toLowerCase().includes(appliedFilters.judgeName.toLowerCase()));
-      const matchesDomain = appliedFilters.domains.length === 0 || appliedFilters.domains.includes(c.domain);
-      
-      return matchesSearch && matchesCourt && matchesYearFrom && matchesYearTo && matchesJudge && matchesDomain;
+
+      const matchesYearFrom =
+        appliedFilters.yearFrom === '' || c.year >= parseInt(appliedFilters.yearFrom, 10);
+      const matchesYearTo =
+        appliedFilters.yearTo === '' || c.year <= parseInt(appliedFilters.yearTo, 10);
+      const matchesJudge =
+        appliedFilters.judgeName === '' ||
+        c.judges.some((j) => j.toLowerCase().includes(appliedFilters.judgeName.toLowerCase()));
+      const matchesDomain =
+        appliedFilters.domains.length === 0 || appliedFilters.domains.includes(c.domain);
+
+      return (
+        matchesSearch && matchesCourt && matchesYearFrom && matchesYearTo && matchesJudge && matchesDomain
+      );
     });
   }, [searchQuery, activeCourt, appliedFilters]);
 
@@ -169,24 +202,89 @@ const CaseSearch = () => {
   };
 
   const toggleDomainFilter = (domain) => {
-    setTempFilters(prev => ({
+    setTempFilters((prev) => ({
       ...prev,
-      domains: prev.domains.includes(domain) 
-        ? prev.domains.filter(d => d !== domain)
-        : [...prev.domains, domain]
+      domains: prev.domains.includes(domain)
+        ? prev.domains.filter((d) => d !== domain)
+        : [...prev.domains, domain],
     }));
   };
 
-  const handleApplyFilters = () => {
+  const handleApplyFilters = async () => {
+    const q = tempSearchQuery.trim();
     setIsTransitioning(true);
+    setSearchQuery(q);
+    setAppliedFilters(tempFilters);
+    setAiError('');
     setTimeout(() => {
-      setSearchQuery(tempSearchQuery.trim());
-      setAppliedFilters(tempFilters);
       setIsTransitioning(false);
       if (window.innerWidth < 768) {
         window.scrollTo({ top: 400, behavior: 'smooth' });
       }
-    }, 400);
+    }, 200);
+
+    // Live legal AI / RAG when the user types a real query
+    if (q.length >= 4) {
+      setAiLoading(true);
+      try {
+        const data = await askLegalAi(
+          `Legal research query for Indian case law and statutes: ${q}. ` +
+            `Return relevant analysis and list important cases, sections, and acts.`
+        );
+        const fromCited = (data.cited_cases || []).map((name, i) => ({
+          id: `ai-case-${i}-${name}`,
+          name: typeof name === 'string' ? name : String(name),
+          citation: 'AI / corpus match',
+          court: 'Retrieved authority',
+          year: new Date().getFullYear(),
+          domain: data.domain ? String(data.domain).replace(/^legal_/, '').replace(/_/g, ' ') : 'General',
+          judges: [],
+          summary: (data.summary || data.analysis || '').slice(0, 280),
+          fullText: data.analysis || data.answer || data.summary || '',
+          fromAi: true,
+        }));
+        const fromCitations = (data.citations || []).slice(0, 8).map((c, i) => ({
+          id: `ai-cit-${i}`,
+          name: c.title || c.text || c.citation_text || `Citation ${i + 1}`,
+          citation: c.source_collection || c.source || 'Legal store',
+          court: 'Corpus',
+          year: new Date().getFullYear(),
+          domain: data.domain ? String(data.domain).replace(/^legal_/, '').replace(/_/g, ' ') : 'General',
+          judges: [],
+          summary: c.excerpt || c.text || '',
+          fullText: c.full_text || c.excerpt || c.text || '',
+          fromAi: true,
+        }));
+        const merged = [...fromCited, ...fromCitations];
+        // de-dupe by normalized name (no duplicate authorities in the list)
+        const seen = new Set();
+        setAiHits(
+          merged.filter((m) => {
+            const key = String(m.name || '')
+              .toLowerCase()
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+        );
+        setAiMeta({
+          provider: data.llm_provider,
+          analysis: data.analysis || data.answer,
+          domain: data.domain,
+        });
+      } catch (err) {
+        setAiHits([]);
+        setAiMeta(null);
+        setAiError(err.message || 'Live legal search unavailable — showing library matches only.');
+      } finally {
+        setAiLoading(false);
+      }
+    } else {
+      setAiHits([]);
+      setAiMeta(null);
+    }
   };
 
   const clearFilters = () => {
@@ -194,316 +292,397 @@ const CaseSearch = () => {
       yearFrom: '',
       yearTo: '',
       judgeName: '',
-      domains: []
+      domains: [],
     };
     setTempFilters(defaultFilters);
     setAppliedFilters(defaultFilters);
     setActiveCourt('All Courts');
     setSearchQuery('');
     setTempSearchQuery('');
+    setAiHits([]);
+    setAiMeta(null);
+    setAiError('');
   };
 
   return (
-    <div className="flex min-h-screen bg-[#020617] text-slate-200 font-inter">
+    <div className="min-h-screen bg-[#f6f7fb] text-slate-900">
       <UserSidebar />
-      
-      <main className="flex-1 md:ml-[280px] p-6 md:p-12 overflow-y-auto">
-        {/* Header Section */}
-        <div className="mb-12">
-          <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white mb-3">
-            Case <span className="text-indigo-500">Search</span>
-          </h1>
-          <p className="text-slate-400 text-lg max-w-2xl leading-relaxed font-medium">
-            Access over 2.5 million judgments with AI-powered semantic search.
-          </p>
-        </div>
 
-        {/* Search Bar */}
-        <div className="glass-effect p-2 rounded-[28px] border border-white/10 flex flex-col md:flex-row items-center gap-2 mb-12 shadow-2xl shadow-indigo-500/10">
-          <div className="flex-1 flex items-center px-6 gap-4 w-full">
-            <Search className="text-indigo-400" size={22} />
-            <input 
-              type="text" 
-              placeholder="Search by case name, citation, or legal query..."
-              className="w-full py-5 bg-transparent outline-none text-white text-lg placeholder:text-slate-500 font-medium"
-              value={tempSearchQuery}
-              onChange={(e) => setTempSearchQuery(e.target.value)}
-            />
-          </div>
-          <button
-            onClick={handleApplyFilters}
-            disabled={isTransitioning}
-            className={`primary-gradient hover:scale-[1.02] active:scale-[0.98] text-white px-10 py-5 rounded-[22px] font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-indigo-500/20 w-full md:w-auto flex items-center justify-center gap-3 ${
-              isTransitioning ? 'opacity-70 cursor-not-allowed' : ''
-            }`}
-          >
-            Search Judgments <ArrowRight size={18} />
-          </button>
-        </div>
+      <main className="min-h-screen min-w-0 pl-0 md:pl-[260px] lg:pl-[280px]">
+        <div className="mx-auto max-w-[1440px] p-4 md:p-8">
+          <header className="mb-8">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-blue-700">Research</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-[#0f2d5e]">Case search</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Search landmark judgments in the library, and run live legal AI research (Groq / Gemini + retrieval) on your query.
+            </p>
+          </header>
 
-        {/* Court Tabs */}
-        <div className="flex flex-wrap gap-3 mb-12">
-          {['All Courts', 'Supreme Court', 'High Court', 'Tribunals'].map(court => (
-            <button
-              key={court}
-              onClick={() => setActiveCourt(court)}
-              className={`px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border ${
-                activeCourt === court 
-                  ? 'bg-indigo-600 text-white border-indigo-500 shadow-xl shadow-indigo-600/20' 
-                  : 'bg-white/5 text-slate-500 border-white/5 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              {court}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex flex-col xl:flex-row gap-12">
-          {/* Results List */}
-          <div className="flex-1 space-y-8">
-            <div className={`flex items-center justify-between transition-opacity duration-300 ${isTransitioning ? 'opacity-50' : 'opacity-100'}`}>
-              <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">
-                Found {filteredCases.length} relevant cases
-              </h3>
+          <div className="mb-6 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm md:flex-row md:items-center">
+            <div className="flex flex-1 items-center gap-3 px-2">
+              <Search className="shrink-0 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="Search by case name, citation, or legal query..."
+                className="w-full bg-transparent py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                value={tempSearchQuery}
+                onChange={(e) => setTempSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleApplyFilters()}
+              />
             </div>
-            
-            <div className={`space-y-8 transition-all duration-500 ${isTransitioning ? 'opacity-0 translate-y-8' : 'opacity-100 translate-y-0'}`}>
-              {filteredCases.map((c, index) => (
-                <div 
-                  key={c.id} 
-                  className="glass-effect rounded-[32px] p-8 hover:bg-white/[0.04] transition-all duration-500 group relative overflow-hidden animate-in fade-in slide-in-from-bottom-8"
-                  style={{ animationDelay: `${index * 100}ms`, animationFillMode: 'both' }}
-                >
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 blur-3xl rounded-full -mr-16 -mt-16 transition-all group-hover:bg-indigo-500/10" />
-                  
-                  <div className="flex justify-between items-start mb-6 relative">
-                    <div className="flex-1">
-                      <h2 className="text-2xl font-black text-white group-hover:text-indigo-400 transition-colors leading-snug max-w-2xl">
-                        {c.name}
-                      </h2>
-                      <div className="flex flex-wrap gap-3 mt-4">
-                        <span className="bg-indigo-500/10 text-indigo-400 text-[10px] font-black px-4 py-2 rounded-xl border border-indigo-500/20 uppercase tracking-widest">
-                          {c.court} • {c.year}
-                        </span>
-                        <span className={`text-[10px] font-black px-4 py-2 rounded-xl uppercase tracking-widest border border-current ${getDomainStyles(c.domain)}`}>
-                          {c.domain}
+            <button
+              type="button"
+              onClick={handleApplyFilters}
+              disabled={isTransitioning || aiLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-60"
+            >
+              {aiLoading ? <Loader2 size={16} className="animate-spin" /> : null}
+              Search {aiLoading ? '' : <ArrowRight size={16} />}
+            </button>
+          </div>
+
+          <div className="mb-6 flex flex-wrap gap-2">
+            {['All Courts', 'Supreme Court', 'High Court', 'Tribunals'].map((court) => (
+              <button
+                key={court}
+                onClick={() => setActiveCourt(court)}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                  activeCourt === court
+                    ? 'border-blue-600 bg-blue-700 text-white'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                {court}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-8 xl:flex-row">
+            <div className="min-w-0 flex-1 space-y-4">
+              {aiLoading && (
+                <div className="flex items-center gap-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-800">
+                  <Loader2 size={16} className="animate-spin" />
+                  Searching legal knowledge base with AI…
+                </div>
+              )}
+              {aiError && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  {aiError}
+                </div>
+              )}
+              {aiMeta?.analysis && (
+                <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-2 flex items-center gap-2 text-sm font-bold text-[#0f2d5e]">
+                    <Sparkles size={16} className="text-blue-600" />
+                    AI research brief
+                    {aiMeta.provider && (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        {aiMeta.provider}
+                      </span>
+                    )}
+                  </div>
+                  <p className="line-clamp-6 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                    {aiMeta.analysis}
+                  </p>
+                </div>
+              )}
+
+              {aiHits.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-slate-700">
+                    Live retrieval · {aiHits.length} hit{aiHits.length === 1 ? '' : 's'}
+                  </p>
+                  {aiHits.map((c) => (
+                    <article
+                      key={c.id}
+                      className="rounded-xl border border-emerald-100 bg-white p-5 shadow-sm ring-1 ring-emerald-50"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <h2 className="text-base font-semibold text-[#0f2d5e]">{c.name}</h2>
+                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                          RAG
                         </span>
                       </div>
-                    </div>
-                    <div className="text-right flex flex-col items-end">
-                      <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-1">Citation</span>
-                      <span className="text-sm font-black text-slate-300 bg-white/5 px-4 py-2 rounded-xl border border-white/5">
-                        {c.citation}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <p className="text-slate-400 line-clamp-2 mb-8 text-base leading-relaxed font-medium">
-                    {c.summary}
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row items-center justify-between pt-6 border-t border-white/5 gap-4">
-                    <div className="flex gap-4 w-full sm:w-auto">
-                      <button 
-                        onClick={() => setSelectedCase(c)}
-                        className="flex-1 sm:flex-none px-8 py-4 bg-white text-black hover:bg-indigo-600 hover:text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 shadow-xl shadow-white/5"
-                      >
-                        <FileText size={16} /> Read Judgment
-                      </button>
-                      <button 
-                        onClick={() => handleCite(c.citation)}
-                        className="flex-1 sm:flex-none px-8 py-4 text-slate-400 hover:text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 hover:bg-white/5"
-                      >
-                        <Quote size={16} /> Copy Cite
-                      </button>
-                    </div>
-                    <button className="w-full sm:w-auto p-4 text-slate-500 hover:text-indigo-400 transition-colors">
-                      <ChevronRight size={24} />
-                    </button>
-                  </div>
+                      <p className="mt-2 line-clamp-3 text-sm text-slate-600">{c.summary}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCase(c)}
+                          className="rounded-lg bg-[#0f2d5e] px-3 py-1.5 text-xs font-semibold text-white"
+                        >
+                          Read
+                        </button>
+                        <Link
+                          to={`/lawyers?domain=${encodeURIComponent(c.domain)}`}
+                          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700"
+                        >
+                          Find lawyers
+                        </Link>
+                      </div>
+                    </article>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
 
-            {filteredCases.length === 0 && (
-              <div className="glass-effect rounded-[40px] border border-dashed border-white/10 p-20 text-center">
-                <div className="bg-indigo-500/10 w-24 h-24 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                  <Search className="text-indigo-400" size={40} />
-                </div>
-                <h3 className="text-2xl font-black text-white mb-2">No judgments found</h3>
-                <p className="text-slate-500 max-w-md mx-auto font-medium">Try broadening your search criteria or adjusting the filters in the sidebar.</p>
-                <button onClick={clearFilters} className="mt-8 text-indigo-400 font-black uppercase tracking-widest hover:text-indigo-300 transition-colors underline-offset-8 underline">Reset all filters</button>
-              </div>
-            )}
-          </div>
+              <p className="text-sm text-slate-500">
+                Library · <span className="font-semibold text-slate-800">{filteredCases.length}</span>{' '}
+                landmark judgment{filteredCases.length === 1 ? '' : 's'}
+              </p>
 
-          {/* Filters Sidebar */}
-          <aside className="w-full xl:w-[360px] space-y-8">
-            <div className="glass-effect rounded-[40px] border border-white/10 p-8 sticky top-12 shadow-2xl">
-              <div className="flex items-center justify-between mb-10">
-                <h3 className="text-xl font-black text-white flex items-center gap-3">
-                  <Filter className="text-indigo-400" size={20} /> Filters
-                </h3>
-                <button 
-                  onClick={clearFilters}
-                  className="text-[10px] font-black text-slate-500 hover:text-rose-400 transition-colors uppercase tracking-[0.2em]"
-                >
-                  Clear All
-                </button>
-              </div>
-
-              <div className="space-y-10">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Date Range</label>
-                  <div className="flex items-center gap-4">
-                    <input 
-                      type="number" 
-                      placeholder="YYYY"
-                      className="w-full bg-white/5 border border-white/5 rounded-2xl px-5 py-4 text-sm text-white focus:border-indigo-500 outline-none transition-all font-bold"
-                      value={tempFilters.yearFrom}
-                      onChange={(e) => setTempFilters(prev => ({ ...prev, yearFrom: e.target.value }))}
-                    />
-                    <span className="text-slate-700 font-black">-</span>
-                    <input 
-                      type="number" 
-                      placeholder="YYYY"
-                      className="w-full bg-white/5 border border-white/5 rounded-2xl px-5 py-4 text-sm text-white focus:border-indigo-500 outline-none transition-all font-bold"
-                      value={tempFilters.yearTo}
-                      onChange={(e) => setTempFilters(prev => ({ ...prev, yearTo: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Bench / Judge</label>
-                  <div className="relative group">
-                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" size={16} />
-                    <input 
-                      type="text" 
-                      placeholder="Enter judge name..."
-                      className="w-full bg-white/5 border border-white/5 rounded-2xl pl-12 pr-6 py-4 text-sm text-white focus:border-indigo-500 outline-none transition-all font-bold"
-                      value={tempFilters.judgeName}
-                      onChange={(e) => setTempFilters(prev => ({ ...prev, judgeName: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-4">Legal Domain</label>
-                  <div className="grid grid-cols-1 gap-3">
-                    {domains.map(domain => (
-                      <label key={domain} className="flex items-center gap-4 group cursor-pointer p-1">
-                        <div className="relative flex items-center">
-                          <input 
-                            type="checkbox" 
-                            className="peer h-6 w-6 cursor-pointer appearance-none rounded-xl border border-white/10 transition-all checked:bg-indigo-600 checked:border-transparent shadow-xl"
-                            checked={tempFilters.domains.includes(domain)}
-                            onChange={() => toggleDomainFilter(domain)}
-                          />
-                          <CheckCircle2 className="absolute left-1 w-4 h-4 text-white opacity-0 peer-checked:opacity-100 transition-opacity" />
-                        </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 group-hover:text-white transition-colors">{domain}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <button 
-                  onClick={handleApplyFilters}
-                  disabled={isTransitioning}
-                  className={`w-full py-6 rounded-[24px] font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl transition-all flex items-center justify-center gap-3 ${
-                    isTransitioning 
-                      ? 'bg-white/5 text-slate-600 cursor-not-allowed' 
-                      : 'bg-indigo-600 text-white shadow-indigo-600/20 hover:scale-[1.02] active:scale-[0.98]'
-                  }`}
-                >
-                  {isTransitioning ? (
-                    <div className="w-4 h-4 border-2 border-slate-600 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    'Apply Filters'
-                  )}
-                </button>
-              </div>
-            </div>
-          </aside>
-        </div>
-      </main>
-
-      {/* Modal */}
-      {selectedCase && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="glass-effect w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-[48px] border border-white/10 flex flex-col shadow-2xl">
-            <div className="p-8 md:p-12 border-b border-white/5 flex items-center justify-between sticky top-0 bg-[#020617]/50 backdrop-blur-xl z-10">
-              <div className="flex items-center gap-6">
-                <div className="w-16 h-16 rounded-[24px] bg-indigo-500/10 flex items-center justify-center text-indigo-400">
-                  <Scale size={32} />
-                </div>
-                <div>
-                  <h2 className="text-3xl font-black text-white tracking-tight">{selectedCase.name}</h2>
-                  <div className="flex items-center gap-4 mt-2">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest bg-white/5 px-4 py-1.5 rounded-lg border border-white/5">
-                      {selectedCase.citation}
-                    </span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-700" />
-                    <span className="text-[10px] font-black text-indigo-400/80 uppercase tracking-widest">{selectedCase.court}</span>
-                  </div>
-                </div>
-              </div>
-              <button 
-                onClick={() => setSelectedCase(null)}
-                className="p-4 hover:bg-white/10 text-slate-400 hover:text-white rounded-full transition-all"
+              <div
+                className={`space-y-4 transition-opacity ${isTransitioning ? 'opacity-50' : 'opacity-100'}`}
               >
-                <X size={32} />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-8 md:p-16">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
-                {[
-                  { label: 'Judgment Date', val: selectedCase.year, icon: Calendar },
-                  { label: 'Coram / Bench', val: selectedCase.judges.join(', '), icon: Gavel },
-                  { label: 'Legal Domain', val: selectedCase.domain, icon: Tag, isDomain: true }
-                ].map((stat, i) => (
-                  <div key={i} className="bg-white/5 p-8 rounded-[32px] border border-white/5 relative overflow-hidden group">
-                    <stat.icon size={48} className="absolute -right-2 -top-2 text-white/5 group-hover:text-white/10 transition-colors" />
-                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-4">{stat.label}</label>
-                    <p className={`text-lg font-black text-white leading-tight ${stat.isDomain ? getDomainStyles(stat.val) : ''}`}>{stat.val}</p>
-                  </div>
+                {filteredCases.map((c) => (
+                  <article
+                    key={c.id}
+                    className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-lg font-semibold text-[#0f2d5e]">{c.name}</h2>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
+                            {c.court} · {c.year}
+                          </span>
+                          <span
+                            className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${getDomainStyles(c.domain)}`}
+                          >
+                            {c.domain}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-left sm:text-right">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Citation
+                        </p>
+                        <p className="mt-0.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-sm font-semibold text-slate-700">
+                          {c.citation}
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-slate-600">
+                      {c.summary}
+                    </p>
+
+                    <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+                      <button
+                        onClick={() => setSelectedCase(c)}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#0f2d5e] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#143974]"
+                      >
+                        <FileText size={15} /> Read judgment
+                      </button>
+                      <button
+                        onClick={() => handleCite(c.citation)}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                      >
+                        <Quote size={15} /> Copy cite
+                      </button>
+                      <Link
+                        to={`/lawyers?domain=${encodeURIComponent(c.domain)}`}
+                        className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                      >
+                        <Users size={15} /> Find lawyers
+                      </Link>
+                      <Link
+                        to="/assistant"
+                        state={{ prefill: `Analyze and summarize: ${c.name} (${c.citation}). ${c.summary}` }}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                      >
+                        <MessageSquare size={15} /> Ask AI
+                      </Link>
+                    </div>
+                  </article>
                 ))}
               </div>
 
-              <div className="max-w-4xl mx-auto space-y-12">
-                <div className="h-px bg-white/5" />
-                <div className="text-slate-300 leading-relaxed space-y-10 text-xl font-outfit italic opacity-90 relative">
-                  <Quote size={40} className="absolute -left-12 -top-12 text-indigo-500/20" />
-                  {selectedCase.fullText}
+              {filteredCases.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                    <Search size={28} />
+                  </div>
+                  <h3 className="mt-4 text-lg font-semibold text-slate-900">No judgments found</h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Try broadening your search or clearing filters.
+                  </p>
+                  <button
+                    onClick={clearFilters}
+                    className="mt-4 text-sm font-semibold text-blue-700 hover:text-blue-800"
+                  >
+                    Reset all filters
+                  </button>
                 </div>
-              </div>
+              )}
             </div>
 
-            <div className="p-8 border-t border-white/5 bg-white/[0.02] flex flex-col sm:flex-row justify-end gap-6">
-              <button 
-                onClick={() => handleCite(selectedCase.citation)}
-                className="px-10 py-5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-[24px] font-black uppercase tracking-widest text-[10px] transition-all flex items-center justify-center gap-3"
-              >
-                <Quote size={16} /> Generate Citation
-              </button>
-              <button 
+            <aside className="w-full shrink-0 xl:w-80">
+              <div className="sticky top-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="mb-5 flex items-center justify-between">
+                  <h3 className="flex items-center gap-2 text-base font-semibold text-[#0f2d5e]">
+                    <Filter size={16} className="text-blue-600" /> Filters
+                  </h3>
+                  <button
+                    onClick={clearFilters}
+                    className="text-xs font-semibold text-slate-400 hover:text-rose-600"
+                  >
+                    Clear all
+                  </button>
+                </div>
+
+                <div className="space-y-5">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Date range
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        placeholder="From"
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                        value={tempFilters.yearFrom}
+                        onChange={(e) =>
+                          setTempFilters((prev) => ({ ...prev, yearFrom: e.target.value }))
+                        }
+                      />
+                      <span className="text-slate-300">–</span>
+                      <input
+                        type="number"
+                        placeholder="To"
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                        value={tempFilters.yearTo}
+                        onChange={(e) =>
+                          setTempFilters((prev) => ({ ...prev, yearTo: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Bench / judge
+                    </label>
+                    <div className="relative">
+                      <Search
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        size={14}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Judge name..."
+                        className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                        value={tempFilters.judgeName}
+                        onChange={(e) =>
+                          setTempFilters((prev) => ({ ...prev, judgeName: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                      Legal domain
+                    </label>
+                    <div className="space-y-2">
+                      {domains.map((domain) => (
+                        <label key={domain} className="flex cursor-pointer items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                            checked={tempFilters.domains.includes(domain)}
+                            onChange={() => toggleDomainFilter(domain)}
+                          />
+                          <span className="text-sm text-slate-700">{domain}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleApplyFilters}
+                    disabled={isTransitioning}
+                    className="w-full rounded-lg bg-blue-700 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 disabled:opacity-50"
+                  >
+                    {isTransitioning ? 'Applying…' : 'Apply filters'}
+                  </button>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </main>
+
+      {selectedCase && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-5 md:p-6">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+                  <Scale size={20} />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold text-[#0f2d5e] md:text-xl">
+                    {selectedCase.name}
+                  </h2>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span className="rounded bg-slate-100 px-2 py-0.5 font-semibold">
+                      {selectedCase.citation}
+                    </span>
+                    <span>{selectedCase.court}</span>
+                  </div>
+                </div>
+              </div>
+              <button
                 onClick={() => setSelectedCase(null)}
-                className="px-12 py-5 bg-indigo-600 text-white rounded-[24px] font-black uppercase tracking-widest text-[10px] transition-all shadow-xl shadow-indigo-600/20 hover:scale-[1.02] active:scale-[0.98]"
+                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
               >
-                Close View
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 md:p-6">
+              <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {[
+                  { label: 'Year', val: selectedCase.year, icon: Calendar },
+                  { label: 'Bench', val: selectedCase.judges.join(', '), icon: Gavel },
+                  { label: 'Domain', val: selectedCase.domain, icon: Tag },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      <stat.icon size={12} />
+                      {stat.label}
+                    </div>
+                    <p className="text-sm font-semibold text-slate-800">{stat.val}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-base leading-relaxed text-slate-700">{selectedCase.fullText}</p>
+            </div>
+
+            <div className="flex flex-col justify-end gap-2 border-t border-slate-100 p-4 sm:flex-row">
+              <button
+                onClick={() => handleCite(selectedCase.citation)}
+                className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Copy citation
+              </button>
+              <button
+                onClick={() => setSelectedCase(null)}
+                className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
+              >
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Toast */}
       {toast.show && (
-        <div className="fixed bottom-12 right-12 z-[200] glass-effect text-white px-8 py-5 rounded-[24px] shadow-2xl flex items-center gap-4 border border-indigo-500/30 animate-in fade-in slide-in-from-bottom-8">
-          <CheckCircle2 size={24} className="text-emerald-400" />
-          <span className="font-black text-[10px] uppercase tracking-widest">{toast.message}</span>
+        <div className="fixed bottom-6 right-6 z-[200] flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-lg">
+          <CheckCircle2 size={18} className="text-emerald-600" />
+          {toast.message}
         </div>
       )}
     </div>

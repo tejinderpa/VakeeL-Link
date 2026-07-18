@@ -1,22 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  User, 
-  Mail, 
-  Shield, 
-  Bell, 
-  CreditCard, 
-  Settings, 
+import {
+  User,
+  Mail,
+  Shield,
+  Bell,
+  CreditCard,
   Camera,
   CheckCircle2,
   Lock,
   Smartphone,
-  Globe,
-  Trash2
+  Trash2,
 } from 'lucide-react';
 import UserSidebar from '../components/UserSidebar';
 import useAuth from '../components/useAuth';
-
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+import { API_BASE_URL } from '../utils/api';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -98,186 +95,212 @@ export default function Profile() {
   };
 
   const tabs = [
-    { id: 'personal', label: 'Personal Info', icon: User },
+    { id: 'personal', label: 'Personal info', icon: User },
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'billing', label: 'Billing', icon: CreditCard },
   ];
 
+  const inputClass =
+    'w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-4 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10';
+
   return (
-    <div className="flex min-h-screen bg-[#020617] text-slate-200">
+    <div className="min-h-screen bg-[#faf8ff] text-slate-900">
       <UserSidebar />
 
-      <main className="flex-1 md:ml-[280px] p-6 md:p-12 overflow-y-auto">
-        <div className="max-w-5xl mx-auto space-y-12">
-          
-          <header className="space-y-4">
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white">
-              Account <span className="text-indigo-500">Settings</span>
-            </h1>
-            <p className="text-slate-400 text-lg max-w-2xl leading-relaxed font-medium">
-              Manage your personal information, account security, and subscription preferences.
+      <main className="min-h-screen min-w-0 md:pl-[260px] lg:pl-[280px]">
+        <div className="mx-auto max-w-5xl p-4 md:p-8">
+          <header className="mb-8">
+            <h1 className="text-3xl font-semibold text-[#0f2d5e]">Account settings</h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-600">
+              Manage your personal information, security, and subscription preferences.
             </p>
           </header>
 
-          <div className="flex flex-col lg:flex-row gap-12">
-            {/* Sidebar Navigation */}
-            <aside className="w-full lg:w-64 shrink-0">
-              <nav className="flex flex-col gap-2">
+          <div className="flex flex-col gap-8 lg:flex-row">
+            <aside className="w-full shrink-0 lg:w-56">
+              <nav className="flex flex-row gap-2 overflow-x-auto lg:flex-col">
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${
-                      activeTab === tab.id 
-                        ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' 
-                        : 'text-slate-500 hover:bg-white/5 hover:text-white'
+                    className={`flex items-center gap-3 whitespace-nowrap rounded-lg px-4 py-3 text-left text-sm font-semibold transition-colors ${
+                      activeTab === tab.id
+                        ? 'bg-[#0f2d5e] text-white'
+                        : 'text-slate-600 hover:bg-white hover:text-[#0f2d5e]'
                     }`}
                   >
-                    <tab.icon size={18} />
+                    <tab.icon size={16} />
                     {tab.label}
                   </button>
                 ))}
               </nav>
             </aside>
 
-            {/* Content Area */}
-            <div className="flex-1">
-              <div className="glass-effect rounded-[40px] border border-white/10 p-8 md:p-12 space-y-12">
-                
+            <div className="min-w-0 flex-1">
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm md:p-8">
                 {activeTab === 'personal' && (
-                  <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">
-                    <div className="flex flex-col md:flex-row items-center gap-8">
+                  <div className="space-y-8">
+                    <div className="flex flex-col items-center gap-5 sm:flex-row">
                       <div className="relative group">
-                        <div className="w-32 h-32 rounded-full border-4 border-white/10 bg-slate-900 flex items-center justify-center text-4xl font-black text-white overflow-hidden shadow-2xl relative">
+                        <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-slate-200 bg-slate-100 text-2xl font-bold text-[#0f2d5e]">
                           {user?.name?.charAt(0) || 'U'}
-                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                            <Camera size={24} className="text-white" />
+                          <div className="absolute inset-0 flex items-center justify-center rounded-full bg-slate-900/40 opacity-0 transition-opacity group-hover:opacity-100">
+                            <Camera size={20} className="text-white" />
                           </div>
                         </div>
-                        <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-indigo-600 rounded-full border-4 border-[#020617] flex items-center justify-center shadow-lg">
+                        <div className="absolute -bottom-0.5 -right-0.5 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-blue-600">
                           <CheckCircle2 size={12} className="text-white" />
                         </div>
                       </div>
-                      <div className="text-center md:text-left space-y-1">
-                        <h2 className="text-2xl font-black text-white">{user?.name || 'User Name'}</h2>
-                        <p className="text-slate-500 font-bold text-sm uppercase tracking-widest">{user?.role || 'Client'} Account</p>
+                      <div className="text-center sm:text-left">
+                        <h2 className="text-xl font-semibold text-[#0f2d5e]">
+                          {user?.name || 'User Name'}
+                        </h2>
+                        <p className="text-sm text-slate-500 capitalize">
+                          {user?.role || 'Client'} account
+                        </p>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6 border-t border-white/5">
-                      <div className="space-y-4">
-                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Full Name</label>
+                    <div className="grid grid-cols-1 gap-5 border-t border-slate-100 pt-6 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Full name
+                        </label>
                         <div className="relative">
-                          <User size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600" />
-                          <input 
-                            type="text" 
+                          <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
                             value={fullName}
                             onChange={(e) => setFullName(e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-6 py-4 text-sm text-white focus:border-indigo-500 outline-none transition-all font-bold" 
+                            className={inputClass}
                           />
                         </div>
                       </div>
-                      <div className="space-y-4">
-                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Email Address</label>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Email address
+                        </label>
                         <div className="relative">
-                          <Mail size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600" />
-                          <input 
-                            type="email" 
+                          <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="email"
                             defaultValue={user?.email}
                             disabled
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-6 py-4 text-sm text-slate-400 cursor-not-allowed outline-none font-bold" 
+                            className={`${inputClass} cursor-not-allowed bg-slate-50 text-slate-500`}
                           />
                         </div>
                       </div>
                     </div>
 
-                    <div className="pt-6">
-                      <button onClick={handleSaveProfile} className="bg-indigo-600 text-white px-10 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-indigo-600/20 hover:bg-indigo-500 hover:-translate-y-1 transition-all">
-                        Save Changes
-                      </button>
-                    </div>
+                    <button
+                      onClick={handleSaveProfile}
+                      className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800"
+                    >
+                      Save changes
+                    </button>
                   </div>
                 )}
 
                 {activeTab === 'security' && (
-                  <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">
-                    <div className="space-y-2">
-                      <h3 className="text-xl font-black text-white">Security & Password</h3>
-                      <p className="text-slate-500 text-sm font-medium">Update your password and manage two-factor authentication.</p>
+                  <div className="space-y-8">
+                    <div>
+                      <h3 className="text-lg font-semibold text-[#0f2d5e]">Security & password</h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Update your password and manage two-factor authentication.
+                      </p>
                     </div>
 
-                    <div className="space-y-8 pt-6 border-t border-white/5">
-                      <div className="grid grid-cols-1 gap-6">
-                        <div className="space-y-4">
-                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">Current Password</label>
-                          <div className="relative">
-                            <Lock size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600" />
-                            <input 
-                              type="password" 
-                              placeholder="••••••••••••"
-                              value={currentPassword}
-                              onChange={(e) => setCurrentPassword(e.target.value)}
-                              className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-6 py-4 text-sm text-white focus:border-indigo-500 outline-none transition-all font-bold" 
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-4">
-                          <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">New Password</label>
-                          <div className="relative">
-                            <Lock size={16} className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600" />
-                            <input 
-                              type="password" 
-                              placeholder="New password"
-                              value={newPassword}
-                              onChange={(e) => setNewPassword(e.target.value)}
-                              className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-6 py-4 text-sm text-white focus:border-indigo-500 outline-none transition-all font-bold" 
-                            />
-                          </div>
+                    <div className="space-y-4 border-t border-slate-100 pt-6">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Current password
+                        </label>
+                        <div className="relative">
+                          <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="password"
+                            placeholder="••••••••"
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            className={inputClass}
+                          />
                         </div>
                       </div>
-                      
-                      <button onClick={handleUpdatePassword} className="bg-indigo-600 text-white px-10 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl shadow-indigo-600/20 hover:bg-indigo-500 hover:-translate-y-1 transition-all">
-                        Update Password
+                      <div>
+                        <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                          New password
+                        </label>
+                        <div className="relative">
+                          <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="password"
+                            placeholder="New password"
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            className={inputClass}
+                          />
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleUpdatePassword}
+                        className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800"
+                      >
+                        Update password
                       </button>
                     </div>
 
-                    <div className="bg-white/5 rounded-3xl p-8 border border-white/5 flex items-center justify-between">
-                      <div className="flex items-center gap-6">
-                        <div className="w-12 h-12 rounded-xl bg-indigo-600/10 flex items-center justify-center text-indigo-400">
-                          <Smartphone size={24} />
+                    <div className="flex flex-col items-start justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 p-5 sm:flex-row sm:items-center">
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+                          <Smartphone size={20} />
                         </div>
                         <div>
-                          <h4 className="text-white font-black text-sm tracking-tight">Two-Factor Authentication</h4>
-                          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">Status: {twoFactorEnabled ? 'Enabled' : 'Disabled'}</p>
+                          <h4 className="text-sm font-semibold text-slate-900">
+                            Two-factor authentication
+                          </h4>
+                          <p className="text-xs text-slate-500">
+                            Status: {twoFactorEnabled ? 'Enabled' : 'Disabled'}
+                          </p>
                         </div>
                       </div>
-                      <button onClick={handleToggle2FA} className="text-indigo-400 font-black text-[10px] uppercase tracking-widest hover:text-white transition-colors">{twoFactorEnabled ? 'Disable' : 'Enable'}</button>
+                      <button
+                        onClick={handleToggle2FA}
+                        className="text-sm font-semibold text-blue-700 hover:text-blue-800"
+                      >
+                        {twoFactorEnabled ? 'Disable' : 'Enable'}
+                      </button>
                     </div>
                   </div>
                 )}
 
                 {activeTab === 'notifications' && (
-                  <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">
-                    <div className="space-y-2">
-                      <h3 className="text-xl font-black text-white">Notification Preferences</h3>
-                      <p className="text-slate-500 text-sm font-medium">Control which updates you receive via email and push.</p>
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-lg font-semibold text-[#0f2d5e]">Notification preferences</h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Control which updates you receive via email and push.
+                      </p>
                     </div>
 
-                    <div className="space-y-4 pt-6 border-t border-white/5">
+                    <div className="divide-y divide-slate-100 border-t border-slate-100">
                       {[
-                        { title: 'Case Updates', desc: 'Alerts for status changes in your active matters.' },
-                        { title: 'Meeting Reminders', desc: 'Reminders for upcoming consultations.' },
-                        { title: 'Marketplace Offers', desc: 'Exclusive deals from legal professionals.' },
-                        { title: 'System Alerts', desc: 'Security alerts and system maintenance notes.' }
-                      ].map((item, i) => (
-                        <div key={i} className="flex items-center justify-between p-6 rounded-3xl hover:bg-white/5 transition-all">
-                          <div className="space-y-1">
-                            <h4 className="text-white font-black text-sm tracking-tight">{item.title}</h4>
-                            <p className="text-slate-500 text-xs font-medium">{item.desc}</p>
+                        { title: 'Case updates', desc: 'Alerts for status changes in your active matters.' },
+                        { title: 'Meeting reminders', desc: 'Reminders for upcoming consultations.' },
+                        { title: 'Marketplace offers', desc: 'Exclusive deals from legal professionals.' },
+                        { title: 'System alerts', desc: 'Security alerts and system maintenance notes.' },
+                      ].map((item) => (
+                        <div
+                          key={item.title}
+                          className="flex items-center justify-between gap-4 py-4"
+                        >
+                          <div>
+                            <h4 className="text-sm font-semibold text-slate-900">{item.title}</h4>
+                            <p className="text-xs text-slate-500">{item.desc}</p>
                           </div>
-                          <div className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-indigo-600">
-                            <span className="translate-x-5 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+                          <div className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full bg-blue-600">
+                            <span className="pointer-events-none inline-block h-5 w-5 translate-x-5 transform rounded-full bg-white shadow ring-0 transition" />
                           </div>
                         </div>
                       ))}
@@ -286,77 +309,84 @@ export default function Profile() {
                 )}
 
                 {activeTab === 'billing' && (
-                  <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">
-                    <div className="space-y-2">
-                      <h3 className="text-xl font-black text-white">Subscription & Billing</h3>
-                      <p className="text-slate-500 text-sm font-medium">Manage your plan and view recent transaction history.</p>
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-lg font-semibold text-[#0f2d5e]">Subscription & billing</h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Manage your plan and view recent transaction history.
+                      </p>
                     </div>
 
-                    <div className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-[32px] p-8 text-white relative overflow-hidden shadow-2xl shadow-indigo-600/20">
-                      <div className="absolute top-0 right-0 p-8 opacity-10">
-                        <CreditCard size={120} />
+                    <div className="rounded-xl bg-[#0f2d5e] p-6 text-white">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                          <span className="rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider">
+                            Active plan
+                          </span>
+                          <h4 className="mt-3 text-2xl font-bold">VakeelLink Premium</h4>
+                        </div>
+                        <span className="text-2xl font-bold">
+                          $49<span className="text-sm font-medium text-blue-200">/mo</span>
+                        </span>
                       </div>
-                      <div className="relative space-y-6">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <span className="px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-[9px] font-black uppercase tracking-widest">Active Plan</span>
-                            <h4 className="text-3xl font-black mt-3">VakeelLink Premium</h4>
-                          </div>
-                          <span className="text-3xl font-black">$49<span className="text-sm opacity-60">/mo</span></span>
-                        </div>
-                        <div className="pt-6 border-t border-white/20 flex justify-between items-center">
-                          <p className="text-xs font-bold uppercase tracking-widest opacity-80">Next Renewal: June 15, 2024</p>
-                          <button className="bg-white text-indigo-600 px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-100 transition-all">Manage</button>
-                        </div>
+                      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/15 pt-5">
+                        <p className="text-xs text-blue-100">Next renewal: June 15, 2024</p>
+                        <button className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#0f2d5e] hover:bg-blue-50">
+                          Manage
+                        </button>
                       </div>
                     </div>
 
-                    <div className="space-y-6">
-                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Billing History</h4>
-                      <div className="space-y-4">
+                    <div>
+                      <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">
+                        Billing history
+                      </h4>
+                      <div className="space-y-2">
                         {[
                           { date: 'May 15, 2024', amount: '$49.00', status: 'Success' },
-                          { date: 'Apr 15, 2024', amount: '$49.00', status: 'Success' }
-                        ].map((inv, i) => (
-                          <div key={i} className="flex items-center justify-between p-6 rounded-3xl bg-white/5 border border-white/5">
-                            <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-slate-400">
-                                <CreditCard size={18} />
+                          { date: 'Apr 15, 2024', amount: '$49.00', status: 'Success' },
+                        ].map((inv) => (
+                          <div
+                            key={inv.date}
+                            className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm">
+                                <CreditCard size={16} />
                               </div>
                               <div>
-                                <p className="text-white font-black text-sm">{inv.date}</p>
-                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{inv.status}</p>
+                                <p className="text-sm font-semibold text-slate-900">{inv.date}</p>
+                                <p className="text-xs text-emerald-600">{inv.status}</p>
                               </div>
                             </div>
-                            <span className="text-white font-black">{inv.amount}</span>
+                            <span className="text-sm font-semibold text-slate-900">{inv.amount}</span>
                           </div>
                         ))}
                       </div>
                     </div>
                   </div>
                 )}
-
               </div>
 
-              {/* Danger Zone */}
-              <div className="mt-12 p-8 rounded-[40px] border border-rose-500/10 bg-rose-500/[0.02] flex items-center justify-between">
+              <div className="mt-6 flex flex-col items-start justify-between gap-4 rounded-xl border border-rose-200 bg-rose-50 p-5 sm:flex-row sm:items-center">
                 <div>
-                  <h4 className="text-rose-400 font-black text-sm tracking-tight">Danger Zone</h4>
-                  <p className="text-slate-500 text-xs font-medium mt-1">Permanently delete your account and all associated data.</p>
+                  <h4 className="text-sm font-semibold text-rose-700">Danger zone</h4>
+                  <p className="mt-0.5 text-xs text-rose-600/80">
+                    Permanently delete your account and all associated data.
+                  </p>
                 </div>
-                <button className="flex items-center gap-2 text-rose-500 font-black text-[10px] uppercase tracking-widest px-6 py-3 hover:bg-rose-500/10 rounded-xl transition-all">
+                <button className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-50">
                   <Trash2 size={16} />
-                  Delete Account
+                  Delete account
                 </button>
               </div>
             </div>
           </div>
-
         </div>
       </main>
 
       {toast && (
-        <div className="fixed bottom-8 right-8 z-[120] glass-effect text-white px-6 py-4 rounded-2xl border border-white/10 shadow-2xl text-[10px] font-black uppercase tracking-widest">
+        <div className="fixed bottom-6 right-6 z-[120] rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-lg">
           {toast}
         </div>
       )}

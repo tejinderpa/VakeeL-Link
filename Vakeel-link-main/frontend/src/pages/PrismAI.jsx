@@ -27,8 +27,7 @@ import {
 } from 'lucide-react';
 import UserSidebar from '../components/UserSidebar';
 import useAuth from '../components/useAuth';
-
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+import { API_BASE_URL } from '../utils/api';
 
 const PRISM_TOOLS = [
   { id: 'research', name: 'Know Your Kanoon', icon: Search, description: 'Research statutes and precedents' },
@@ -70,7 +69,7 @@ const PrismAI = () => {
   }, [loading]);
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
     if (!query.trim()) return;
 
     setLoading(true);
@@ -89,20 +88,45 @@ const PrismAI = () => {
         ? `[CONTEXT: ${documentContext.title}] ${query}\n\nRELEVANT TEXT: ${documentContext.full_text || documentContext.excerpt}` 
         : query;
 
-      const res = await fetch(`${API_BASE_URL}/api/query/ask`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
-        body: JSON.stringify({ query: effectiveQuery }),
-      });
+      const endpoints = ['/api/v1/query/ask', '/api/query/ask'];
+      let data = null;
+      let lastError = null;
 
-      if (!res.ok) {
-        throw new Error('Prism engine encountered an error. Please try again.');
+      for (const endpoint of endpoints) {
+        try {
+          const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+            },
+            body: JSON.stringify({ query: effectiveQuery }),
+          });
+
+          if (!res.ok) {
+            let detail = `Prism engine error (${res.status})`;
+            try {
+              const body = await res.json();
+              detail = body?.detail || detail;
+              if (Array.isArray(detail)) detail = detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
+            } catch { /* ignore */ }
+            lastError = new Error(
+              res.status === 429
+                ? (typeof detail === 'string' ? detail : 'Rate limit reached. Wait a minute and retry.')
+                : (typeof detail === 'string' ? detail : 'Prism engine encountered an error.')
+            );
+            if (res.status === 404) continue;
+            break;
+          }
+
+          data = await res.json();
+          break;
+        } catch (err) {
+          lastError = err;
+        }
       }
 
-      const data = await res.json();
+      if (!data) throw lastError || new Error('Unable to connect to Prism AI');
       setResponse(data);
     } catch (err) {
       setError(err.message || 'Unable to connect to Prism AI');
@@ -131,38 +155,30 @@ const PrismAI = () => {
 
   // Process summary into sections if possible
   const structuredAnalysis = useMemo(() => {
-    if (!response?.analysis && !response?.summary) return null;
-    
-    const text = response.analysis || response.summary;
-    const sections = {
-      facts: '',
-      issues: '',
-      analysis: '',
-      conclusion: ''
-    };
+    if (!response?.analysis && !response?.summary && !response?.answer) return null;
 
-    // Handle both "Facts:" and "# Facts:" styles
-    const splitRegex = /(?=#?\s*(?:Facts:|FACTS:|Issues:|ISSUES:|Analysis:|ANALYSIS:|Conclusion:|CONCLUSION:))/i;
-    
-    if (text.match(splitRegex)) {
-      const parts = text.split(splitRegex);
-      parts.forEach(p => {
-        const cleanPart = p.trim();
-        if (cleanPart.match(/^#?\s*(?:Facts:|FACTS:)/i)) 
-          sections.facts = cleanPart.replace(/^#?\s*(?:Facts:|FACTS:)/i, '').trim();
-        else if (cleanPart.match(/^#?\s*(?:Issues:|ISSUES:)/i)) 
-          sections.issues = cleanPart.replace(/^#?\s*(?:Issues:|ISSUES:)/i, '').trim();
-        else if (cleanPart.match(/^#?\s*(?:Analysis:|ANALYSIS:)/i)) 
-          sections.analysis = cleanPart.replace(/^#?\s*(?:Analysis:|ANALYSIS:)/i, '').trim();
-        else if (cleanPart.match(/^#?\s*(?:Conclusion:|CONCLUSION:)/i)) 
-          sections.conclusion = cleanPart.replace(/^#?\s*(?:Conclusion:|CONCLUSION:)/i, '').trim();
-        else if (!sections.analysis && cleanPart)
-          sections.analysis = cleanPart; // Fallback for the first part if no header
-      });
-      return sections;
+    const text = response.analysis || response.summary || response.answer || '';
+    if (!/(?:Facts|Issues|Analysis|Conclusion)\s*:/i.test(text)) return null;
+
+    const sections = { facts: '', issues: '', analysis: '', conclusion: '' };
+    const splitRegex = /(?=(?:^|\n)\s*#*\s*(?:Facts|Issues|Analysis|Conclusion)\s*:?\s*)/i;
+    const headerRegex = /^\s*#*\s*(Facts|Issues|Analysis|Conclusion)\s*:?\s*/i;
+
+    text.split(splitRegex).map((p) => p.trim()).filter(Boolean).forEach((part) => {
+      const match = part.match(headerRegex);
+      if (!match) {
+        if (!sections.analysis) sections.analysis = part;
+        return;
+      }
+      const key = match[1].toLowerCase();
+      const body = part.replace(headerRegex, '').trim();
+      if (key in sections) sections[key] = body;
+    });
+
+    if (!sections.facts && !sections.issues && !sections.analysis && !sections.conclusion) {
+      return null;
     }
-    
-    return null;
+    return sections;
   }, [response]);
 
   return (
@@ -321,35 +337,58 @@ const PrismAI = () => {
                   </div>
                 )}
 
+                {/* Error State */}
+                {error && !loading && (
+                  <div className="p-8 rounded-[32px] border border-rose-500/20 bg-rose-500/5 text-center space-y-4">
+                    <AlertTriangle className="mx-auto text-rose-400" size={28} />
+                    <h3 className="text-lg font-black text-white">Analysis failed</h3>
+                    <p className="text-sm text-slate-400 max-w-md mx-auto leading-relaxed">{error}</p>
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      className="px-6 py-3 bg-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest text-white"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
                 {/* Response Section */}
                 {response && (
                   <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 space-y-8 pb-20">
                     
                     {/* Results Overview Bar */}
                     <div className="flex items-center justify-between p-6 bg-indigo-600/10 border border-indigo-500/20 rounded-3xl backdrop-blur-xl">
-                       <div className="flex items-center gap-6">
+                       <div className="flex items-center gap-6 flex-wrap">
                           <div>
                             <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Domain</div>
                             <div className="text-sm font-bold text-indigo-300 uppercase">{response.domain || 'General Law'}</div>
                           </div>
-                          <div className="w-[1px] h-8 bg-white/10" />
+                          <div className="w-[1px] h-8 bg-white/10 hidden sm:block" />
                           <div>
                             <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Citations</div>
                             <div className="text-sm font-bold text-white">{(response.citations || []).length} Verified</div>
                           </div>
-                          <div className="w-[1px] h-8 bg-white/10" />
+                          <div className="w-[1px] h-8 bg-white/10 hidden sm:block" />
                           <div>
                             <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Confidence</div>
-                            <div className="text-sm font-bold text-emerald-400">{(Number(response.confidence_score || 0) * 100).toFixed(0)}%</div>
+                            <div className="text-sm font-bold text-emerald-400">{Math.min(99, Math.round(Number(response.confidence_score || 0) * 100))}%</div>
                           </div>
                        </div>
                        <button 
-                         onClick={() => { setResponse(null); setQuery(''); }}
+                         onClick={() => { setResponse(null); setQuery(''); setError(''); }}
                          className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-slate-400 hover:text-white transition-all"
                        >
                          <X size={20} />
                        </button>
                     </div>
+
+                    {response.retrieval_notice && (
+                      <div className="flex gap-3 p-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 text-amber-100/90 text-sm">
+                        <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+                        <p className="leading-relaxed">{response.retrieval_notice}</p>
+                      </div>
+                    )}
 
                     {/* Main Analysis Cards */}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">

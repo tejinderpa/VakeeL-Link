@@ -1,26 +1,45 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { User, Mail, Lock, FileText, CheckCircle2, Scale, Shield, ArrowRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  User,
+  Mail,
+  Lock,
+  FileText,
+  Scale,
+  ArrowRight,
+  AlertCircle,
+} from 'lucide-react';
+import AuthBrandPanel from '../components/AuthBrandPanel';
+import { API_BASE_URL, networkErrorMessage } from '../utils/api';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 const BAR_NUMBER_REGEX = /^[A-Z]{1,4}\/\d{1,6}\/\d{4}$/;
 
 export default function Signup() {
   const navigate = useNavigate();
-  const [role, setRole] = useState('Lawyer');
+  const [searchParams] = useSearchParams();
+  const initialRole = searchParams.get('role') === 'lawyer' ? 'Lawyer' : 'Client';
+
+  const [role, setRole] = useState(initialRole);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
     password: '',
-    barRegistration: ''
+    barRegistration: '',
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (searchParams.get('role') === 'lawyer') {
+      setRole('Lawyer');
+    }
+  }, [searchParams]);
+
   const barNumber = formData.barRegistration.trim().toUpperCase();
   const isLawyer = role === 'Lawyer';
   const isBarNumberValid = !isLawyer || BAR_NUMBER_REGEX.test(barNumber);
-  const showBarNumberError = isLawyer && formData.barRegistration.trim().length > 0 && !isBarNumberValid;
+  const showBarNumberError =
+    isLawyer && formData.barRegistration.trim().length > 0 && !isBarNumberValid;
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -47,235 +66,283 @@ export default function Signup() {
         bar_council_id: role === 'Lawyer' ? barNumber : undefined,
       };
 
+      const allowMock = String(import.meta.env.VITE_ALLOW_MOCK_AUTH || '').toLowerCase() === 'true';
       let backendRegistered = false;
+      let backendError = null;
+      let backendMessage = null;
+
       try {
         const response = await fetch(`${API_BASE_URL}/api/v1/auth/signup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+        const data = await response.json().catch(() => ({}));
         if (response.ok) {
           backendRegistered = true;
+          backendMessage =
+            typeof data?.message === 'string'
+              ? data.message
+              : 'Account created successfully. Please sign in.';
         } else {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data?.detail || 'Registration failed');
+          backendError =
+            typeof data?.detail === 'string'
+              ? data.detail
+              : typeof data?.message === 'string'
+                ? data.message
+                : 'Registration failed';
+
+          // If the API still returns a raw rate-limit string, guide the user
+          if (/rate limit|too many/i.test(backendError)) {
+            backendError =
+              'Supabase email rate limit hit. Restart the API if you just updated it, ' +
+              'then try signup again (offline account will be created), or login with demo: ' +
+              'lawyer@example.com / lawyer123';
+          }
         }
-      } catch (_backendError) {
-        // Keep local fallback for demo mode when backend is unavailable.
+      } catch (networkErr) {
+        backendError = networkErrorMessage(networkErr, API_BASE_URL);
       }
 
-      localStorage.setItem('vakeellink_pending_registration', JSON.stringify({
-        role: role.toLowerCase(),
-        fullName: formData.fullName,
-        email: formData.email,
-        barRegistration: formData.barRegistration,
-      }));
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!backendRegistered && !allowMock) {
+        throw new Error(backendError || 'Registration failed');
+      }
+
+      localStorage.setItem(
+        'vakeellink_pending_registration',
+        JSON.stringify({
+          role: role === 'Lawyer' ? 'lawyer' : 'user',
+          fullName: formData.fullName,
+          email: formData.email,
+          barRegistration: formData.barRegistration,
+        })
+      );
+
       navigate('/login', {
         state: {
           message: backendRegistered
-            ? 'Account created successfully. Please sign in.'
+            ? backendMessage || 'Account created successfully. Please sign in.'
             : 'Account saved in demo mode. Please sign in.',
         },
       });
     } catch (err) {
-      setError(err.message || 'System rejected registration. Please verify details, including Bar Number for lawyers.');
+      setError(
+        err.message ||
+          'Registration failed. Please verify your details, including Bar Number for lawyers.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] flex items-center justify-center p-4 md:p-8 font-inter">
-      {/* Decorative Glows */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-600/10 rounded-full blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/10 rounded-full blur-[120px]"></div>
-      </div>
+    <div className="min-h-screen bg-[#faf8ff] text-slate-900">
+      <div className="grid min-h-screen lg:grid-cols-2">
+        <AuthBrandPanel role={isLawyer ? 'lawyer' : 'client'} mode="signup" />
 
-      <div className="glass-effect rounded-[48px] border border-white/10 shadow-2xl flex flex-col md:flex-row w-full max-w-[1100px] overflow-hidden transform scale-95 origin-center">
-        {/* Left Side: Branding/Visual */}
-        <div className="w-full md:w-[45%] relative overflow-hidden hidden md:flex flex-col justify-between p-16">
-          <div className="absolute inset-0 z-0">
-             <img 
-               src="https://images.unsplash.com/photo-1505664194779-8beaceb93744?q=80&w=2070&auto=format&fit=crop" 
-               alt="Legal chambers" 
-               className="w-full h-full object-cover opacity-20 grayscale"
-             />
-             <div className="absolute inset-0 bg-gradient-to-br from-[#020617] via-transparent to-indigo-900/20"></div>
-          </div>
-          
-          <div className="relative z-10">
-            <Link to="/" className="flex items-center gap-3 group">
-                <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/20 transition-transform group-hover:scale-110">
-                    <Scale size={24} className="text-white" />
-                </div>
-                <span className="text-xl font-black tracking-tighter text-white">Vakeel<span className="text-indigo-500">Link</span></span>
+        {/* Form panel */}
+        <div className="flex flex-col justify-center px-4 py-12 sm:px-8 lg:px-12 xl:px-16">
+          <div className="mx-auto w-full max-w-md">
+            <Link to="/" className="mb-8 flex items-center gap-2.5 lg:hidden">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#0f2d5e] text-white">
+                <Scale size={18} />
+              </div>
+              <span className="text-lg font-bold text-[#0f2d5e]">
+                Vakeel<span className="text-blue-600">Link</span>
+              </span>
             </Link>
-          </div>
 
-          <div className="relative z-10 space-y-8">
-            <h2 className="text-5xl font-black text-white leading-tight">Join the <br /> <span className="text-indigo-500">Legal Elite.</span></h2>
-            <p className="text-slate-400 font-medium text-lg">Be part of India's fastest growing digital legal infrastructure.</p>
-            
-            <div className="space-y-4 pt-10">
-               {[
-                 'Advanced AI Research Engine',
-                 'Institutional Grade Security',
-                 'Verified Network Access'
-               ].map((benefit) => (
-                 <div key={benefit} className="flex items-center gap-3 text-sm font-bold text-slate-300">
-                    <CheckCircle2 size={18} className="text-indigo-500" />
-                    {benefit}
-                 </div>
-               ))}
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight text-[#0f2d5e]">Create account</h1>
+                <p className="mt-2 text-sm text-slate-500">Choose your role to get started.</p>
+              </div>
+              <Link
+                to="/login"
+                className="shrink-0 text-sm font-semibold text-blue-700 hover:text-blue-800"
+              >
+                Sign in
+              </Link>
             </div>
-          </div>
 
-          <div className="relative z-10 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
-             <Shield size={14} className="text-indigo-500" />
-             Protected by VakeelLink Cryptography
-          </div>
-        </div>
-
-        {/* Right Side: Form */}
-        <div className="w-full md:w-[55%] p-10 md:p-20 flex flex-col justify-center bg-white/[0.02] border-l border-white/5">
-          <header className="mb-12 flex justify-between items-start">
-            <div>
-              <h1 className="text-4xl font-black text-white mb-4">Create Account</h1>
-              <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Select your institutional role to begin</p>
+            <div className="mt-6 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setRole('Client')}
+                className={`rounded-lg py-2.5 text-sm font-semibold transition-colors ${
+                  role === 'Client'
+                    ? 'bg-[#0f2d5e] text-white'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Client
+              </button>
+              <button
+                type="button"
+                onClick={() => setRole('Lawyer')}
+                className={`rounded-lg py-2.5 text-sm font-semibold transition-colors ${
+                  role === 'Lawyer'
+                    ? 'bg-[#0f2d5e] text-white'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Advocate
+              </button>
             </div>
-            <Link to="/login" className="text-[10px] font-black uppercase tracking-widest text-indigo-500 hover:text-white transition-colors">Sign In Instead</Link>
-          </header>
 
-          <div className="flex glass-effect p-1.5 rounded-[24px] border border-white/5 mb-10 overflow-hidden">
-            <button 
-              onClick={() => setRole('Client')}
-              className={`flex-1 py-4 rounded-[20px] font-black text-[10px] uppercase tracking-widest transition-all ${role === 'Client' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}
-            >
-              Public Client
-            </button>
-            <button 
-              onClick={() => setRole('Lawyer')}
-              className={`flex-1 py-4 rounded-[20px] font-black text-[10px] uppercase tracking-widest transition-all ${role === 'Lawyer' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-slate-500 hover:text-white'}`}
-            >
-              Licensed Advocate
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Full Name</label>
+            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+              <div>
+                <label
+                  htmlFor="fullName"
+                  className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500"
+                >
+                  Full name
+                </label>
                 <div className="relative">
-                  <User size={18} className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input 
+                  <User
+                    size={18}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    id="fullName"
                     name="fullName"
                     value={formData.fullName}
                     onChange={handleChange}
-                    className="w-full pl-16 pr-8 py-5 rounded-2xl bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/10 outline-none transition-all text-white font-bold" 
-                    placeholder="Enter Name" 
-                    required 
-                    type="text" 
+                    className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    placeholder="Your full name"
+                    required
+                    type="text"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Email Address</label>
+              <div>
+                <label
+                  htmlFor="email"
+                  className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500"
+                >
+                  Email
+                </label>
                 <div className="relative">
-                  <Mail size={18} className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input 
+                  <Mail
+                    size={18}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    id="email"
                     name="email"
                     value={formData.email}
                     onChange={handleChange}
-                    className="w-full pl-16 pr-8 py-5 rounded-2xl bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/10 outline-none transition-all text-white font-bold" 
-                    placeholder="name@email.com" 
-                    required 
-                    type="email" 
+                    className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    placeholder="you@example.com"
+                    required
+                    type="email"
                   />
                 </div>
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Password Security</label>
-              <div className="relative">
-                <Lock size={18} className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" />
-                <input 
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  className="w-full pl-16 pr-8 py-5 rounded-2xl bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/10 outline-none transition-all text-white font-bold" 
-                  placeholder="Min 8 characters" 
-                  minLength="8" 
-                  required 
-                  type="password" 
-                />
-              </div>
-            </div>
-
-            {role === 'Lawyer' && (
-              <div className="space-y-2 animate-in fade-in slide-in-from-top-4">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Bar Number / Bar Council ID</label>
+              <div>
+                <label
+                  htmlFor="password"
+                  className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500"
+                >
+                  Password
+                </label>
                 <div className="relative">
-                  <FileText size={18} className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input 
-                    name="barRegistration"
-                    value={formData.barRegistration}
-                    onChange={(e) => {
-                      setFormData({ ...formData, barRegistration: e.target.value.toUpperCase() });
-                    }}
-                    className="w-full pl-16 pr-8 py-5 rounded-2xl bg-white/5 border border-white/10 focus:border-indigo-500 focus:bg-white/10 outline-none transition-all text-white font-bold" 
-                    placeholder="Ex: D/1234/2019" 
-                    required={role === 'Lawyer'}
-                    type="text" 
+                  <Lock
+                    size={18}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    id="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    placeholder="Min. 8 characters"
+                    minLength="8"
+                    required
+                    type="password"
                   />
                 </div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600 ml-4">
-                  Format: STATE/NUMBER/YEAR (e.g., D/1234/2019).
-                </p>
-                {showBarNumberError && (
-                  <p className="text-[10px] font-black uppercase tracking-widest text-rose-400 ml-4">
-                    Invalid format. Use STATE/NUMBER/YEAR.
+              </div>
+
+              {role === 'Lawyer' && (
+                <div>
+                  <label
+                    htmlFor="barRegistration"
+                    className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500"
+                  >
+                    Bar Council ID
+                  </label>
+                  <div className="relative">
+                    <FileText
+                      size={18}
+                      className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                    <input
+                      id="barRegistration"
+                      name="barRegistration"
+                      value={formData.barRegistration}
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData,
+                          barRegistration: e.target.value.toUpperCase(),
+                        });
+                      }}
+                      className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                      placeholder="e.g. D/1234/2019"
+                      required={role === 'Lawyer'}
+                      type="text"
+                    />
+                  </div>
+                  <p className="mt-1.5 text-xs text-slate-400">
+                    Format: STATE/NUMBER/YEAR (example: D/1234/2019)
                   </p>
-                )}
-              </div>
-            )}
-
-            {error && (
-              <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-400 text-[10px] font-black uppercase tracking-widest flex items-center gap-3">
-                <Shield size={14} />
-                {error}
-              </div>
-            )}
-
-            <div className="flex items-start gap-4 py-4 px-2">
-              <input 
-                className="mt-1 w-5 h-5 rounded-lg appearance-none border-2 border-white/10 checked:bg-indigo-600 checked:border-transparent transition-all cursor-pointer" 
-                required 
-                type="checkbox" 
-              />
-              <p className="text-slate-500 font-bold text-[10px] uppercase tracking-[0.2em] leading-relaxed">
-                I verify that the information provided is correct and I agree to the <span className="text-indigo-500 cursor-pointer">Protocol</span> and <span className="text-indigo-500 cursor-pointer">Compliance Policy</span>.
-              </p>
-            </div>
-
-            <button 
-              type="submit"
-              disabled={loading || !isBarNumberValid}
-              className="w-full py-6 rounded-[28px] bg-indigo-600 text-white font-black uppercase tracking-[0.2em] text-[11px] shadow-xl shadow-indigo-600/20 hover:bg-indigo-500 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-3 group disabled:opacity-50"
-            >
-              {loading ? (
-                <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-              ) : (
-                <>
-                  Establish Identity
-                  <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
-                </>
+                  {showBarNumberError && (
+                    <p className="mt-1.5 text-xs font-semibold text-rose-600">
+                      Invalid format. Use STATE/NUMBER/YEAR.
+                    </p>
+                  )}
+                </div>
               )}
-            </button>
-          </form>
+
+              {error && (
+                <div className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                  <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <label className="flex items-start gap-3 py-1">
+                <input
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                  required
+                  type="checkbox"
+                />
+                <span className="text-xs leading-relaxed text-slate-500">
+                  I confirm the details are accurate and agree to the{' '}
+                  <span className="font-semibold text-blue-700">Terms</span> and{' '}
+                  <span className="font-semibold text-blue-700">Privacy Policy</span>.
+                </span>
+              </label>
+
+              <button
+                type="submit"
+                disabled={loading || !isBarNumberValid}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-700 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 disabled:opacity-50"
+              >
+                {loading ? (
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                ) : (
+                  <>
+                    Create account
+                    <ArrowRight size={16} />
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </div>

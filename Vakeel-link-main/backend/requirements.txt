@@ -1,9 +1,23 @@
-fastapi[all]==0.111.0
-supabase==2.5.1
-pydantic==2.7.1
-pydantic-settings==2.2.1
-qdrant-client==1.9.1
-sentence-transformers==2.7.0
-groq==0.8.0
-python-dotenv==1.0.1
-uvicorn==0.29.0
+# VakeelLink backend — compatible with Python 3.11–3.13
+# Install:  pip install -r requirements.txt
+
+fastapi[all]>=0.111.0,<1.0
+uvicorn>=0.29.0,<1.0
+pydantic>=2.7.1,<3.0
+pydantic-settings>=2.2.1,<3.0
+python-dotenv>=1.0.1
+
+# Data / auth
+supabase>=2.5.1,<3.0
+
+# Vector search + embeddings
+qdrant-client>=1.9.1,<2.0
+sentence-transformers>=2.7.0,<6.0
+numpy>=1.26.0
+
+# LLMs
+groq>=0.8.0
+google-genai>=0.3.0
+
+# Rate limiting
+slowapi>=0.1.9

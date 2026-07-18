@@ -16,7 +16,6 @@ import Statutes from './pages/Statutes';
 import Archive from './pages/Archive';
 import Consultations from './pages/Consultations';
 import Profile from './pages/Profile';
-import UserSidebar from './components/UserSidebar';
 import ScrollToTop from './components/ScrollToTop.jsx';
 import './App.css';
 
@@ -24,16 +23,18 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
 
   if (loading) return (
-    <div className="flex min-h-screen bg-[#020617] items-center justify-center">
-      <div className="w-8 h-8 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+    <div className="flex min-h-screen bg-[#faf8ff] items-center justify-center">
+      <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-700 rounded-full animate-spin"></div>
     </div>
   );
   if (!user) return <Login />;
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     return (
-      <div className="flex min-h-screen bg-[#020617] items-center justify-center flex-col gap-6 text-white font-black uppercase tracking-widest text-xs">
-        Access Denied
-        <Link to="/" className="px-6 py-3 bg-indigo-600 rounded-xl">Return Home</Link>
+      <div className="flex min-h-screen bg-[#faf8ff] items-center justify-center flex-col gap-4 text-[#0f2d5e]">
+        <p className="text-sm font-semibold">Access denied</p>
+        <Link to="/" className="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">
+          Return home
+        </Link>
       </div>
     );
   }
@@ -46,21 +47,22 @@ function AppContent() {
   // Most pages now have internal sidebars and dark themes
   const isDashboardPage = [
     '/dashboard',
-    '/my-cases', 
-    '/case-curator', 
-    '/case-search', 
-    '/lawyers', 
-    '/statutes', 
+    '/my-cases',
+    '/case-curator',
+    '/case-search',
+    '/assistant',
+    '/lawyers',
+    '/statutes',
     '/archive',
     '/consultations',
-    '/profile'
-  ].some(path => location.pathname.startsWith(path));
+    '/profile',
+  ].some((path) => location.pathname.startsWith(path));
 
   const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
   const isLandingPage = location.pathname === '/';
 
   return (
-    <div className="bg-[#020617] text-slate-200 font-inter min-h-screen flex flex-col w-full selection:bg-indigo-500/30">
+    <div className="min-h-screen w-full flex flex-col bg-[#faf8ff] text-slate-900 font-inter selection:bg-blue-200/60">
       <main className="flex-grow flex flex-col w-full">
         <Routes>
           <Route path="/" element={<LandingPage />} />
@@ -125,21 +127,21 @@ function AppContent() {
             </ProtectedRoute>
           } />
           
-          <Route path="/pricing" element={<div className="min-h-screen flex items-center justify-center text-white">Pricing Page (Coming Soon)</div>} />
+          <Route path="/pricing" element={<div className="min-h-screen flex items-center justify-center text-slate-700">Pricing Page (Coming Soon)</div>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
       {/* Global Footer only for Landing/Static pages */}
       {!isDashboardPage && !isAuthPage && !isLandingPage && (
-        <footer className="bg-slate-950/50 border-t border-white/5 w-full py-12 flex flex-col md:flex-row justify-between items-center px-12">
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-4 md:mb-0">
-            © 2024 VakeelLink Legal AI. Premium Dashboard Experience.
+        <footer className="w-full border-t border-slate-200 bg-white py-10 flex flex-col md:flex-row justify-between items-center px-8 gap-4">
+          <span className="text-xs text-slate-400">
+            © {new Date().getFullYear()} VakeelLink. All rights reserved.
           </span>
-          <div className="flex gap-8">
-            <a className="text-[10px] font-black uppercase tracking-widest text-slate-600 hover:text-white transition-colors" href="#">Ethics</a>
-            <a className="text-[10px] font-black uppercase tracking-widest text-slate-600 hover:text-white transition-colors" href="#">Terms</a>
-            <a className="text-[10px] font-black uppercase tracking-widest text-slate-600 hover:text-white transition-colors" href="#">Support</a>
+          <div className="flex gap-6">
+            <a className="text-xs font-medium text-slate-500 hover:text-[#0f2d5e] transition-colors" href="#">Ethics</a>
+            <a className="text-xs font-medium text-slate-500 hover:text-[#0f2d5e] transition-colors" href="#">Terms</a>
+            <a className="text-xs font-medium text-slate-500 hover:text-[#0f2d5e] transition-colors" href="#">Support</a>
           </div>
         </footer>
       )}

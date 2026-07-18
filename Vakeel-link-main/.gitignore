@@ -65,5 +65,8 @@ processed_data/
 enriched_corpus/
 embeddings/
 
+# Offline local auth store (created when Supabase is unreachable)
+backend/data/
+
 # Local files
 hi.py

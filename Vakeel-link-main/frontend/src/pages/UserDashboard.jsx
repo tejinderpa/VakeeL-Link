@@ -1,173 +1,438 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { 
-  ArrowUpRight, 
-  CalendarDays, 
-  MessageSquare, 
-  Scale, 
-  Search, 
-  UserRound, 
-  Clock, 
-  ChevronRight, 
-  CheckCircle2, 
+import {
+  ArrowUpRight,
+  CalendarDays,
+  MessageSquare,
+  Scale,
+  Search,
+  Clock,
+  CheckCircle2,
   AlertCircle,
   Video,
   MapPin,
   History,
-  Zap
+  Zap,
+  Bell,
+  Settings,
+  MessageCircle,
+  Loader2,
 } from 'lucide-react';
 import UserSidebar from '../components/UserSidebar';
 import useAuth from '../components/useAuth';
-import { MOCK_CONSULTATIONS, MOCK_ACTIVITY, MOCK_STATS } from '../utils/mockData';
+import { apiGet, hasRealToken } from '../utils/api';
+import {
+  formatRelativeTime,
+  isOpenStatus,
+  mapConsultationForClient,
+  normalizeStatus,
+  statusBadgeClass,
+  statusLabel,
+} from '../utils/consultationStatus';
+import { DEMO_ACTIVITY, mergeClientConsultations } from '../utils/clientCatalog';
 
 const quickActions = [
-  { title: 'Search Case Law', description: 'Ask the AI engine for cases, statutes, and precedents.', path: '/case-search', icon: Search },
-  { title: 'AI Assistant', description: 'Generate a structured analysis for your legal question.', path: '/assistant', icon: MessageSquare },
-  { title: 'Find Lawyers', description: 'Browse verified advocates by domain and rating.', path: '/lawyers', icon: Scale },
-  { title: 'My Consultations', description: 'Review active matters and upcoming appointments.', path: '/consultations', icon: CalendarDays },
+  {
+    title: 'Search Case Law',
+    description: 'Find cases, statutes, and precedents.',
+    path: '/case-search',
+    icon: Search,
+  },
+  {
+    title: 'AI Assistant',
+    description: 'Structured analysis for your legal question.',
+    path: '/assistant',
+    icon: MessageSquare,
+  },
+  {
+    title: 'Find Lawyers',
+    description: 'Browse verified advocates by domain.',
+    path: '/lawyers',
+    icon: Scale,
+  },
+  {
+    title: 'My Consultations',
+    description: 'Upcoming appointments and active matters.',
+    path: '/consultations',
+    icon: CalendarDays,
+  },
 ];
+
+const accentStyles = {
+  blue: 'border-l-blue-600 bg-blue-50 text-blue-700',
+  teal: 'border-l-teal-600 bg-teal-50 text-teal-700',
+  indigo: 'border-l-indigo-600 bg-indigo-50 text-indigo-700',
+  orange: 'border-l-orange-500 bg-orange-50 text-orange-700',
+};
+
+function activityIcon(type) {
+  if (type === 'AI_SEARCH') return <Zap size={16} className="text-blue-600" />;
+  if (type === 'LAWYER_SAVE') return <CheckCircle2 size={16} className="text-emerald-600" />;
+  if (type === 'CONSULTATION') return <CalendarDays size={16} className="text-indigo-600" />;
+  return <AlertCircle size={16} className="text-amber-600" />;
+}
 
 export default function UserDashboard() {
   const { user } = useAuth();
+  const displayName = user?.name || user?.full_name || 'Client';
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join('');
+
+  const [consultations, setConsultations] = useState([]);
+  const [aiCount, setAiCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [headerQuery, setHeaderQuery] = useState('');
+
+  const todayLabel = new Date().toLocaleDateString('en-IN', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    let apiRows = [];
+    let runs = 3; // baseline demo AI activity count
+    try {
+      if (hasRealToken()) {
+        const [consRes, casesRes] = await Promise.allSettled([
+          apiGet('/api/v1/consultations/mine'),
+          apiGet('/api/v1/cases/?limit=5'),
+        ]);
+        if (consRes.status === 'fulfilled') {
+          apiRows = consRes.value?.data || [];
+        }
+        if (casesRes.status === 'fulfilled') {
+          runs = Math.max(
+            runs,
+            Number(casesRes.value?.total_count || (casesRes.value?.data || []).length || 0)
+          );
+        }
+      }
+    } finally {
+      setConsultations(mergeClientConsultations(apiRows).map(mapConsultationForClient));
+      setAiCount(runs);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => load(), 0);
+    return () => window.clearTimeout(t);
+  }, [load]);
+
+  const openMatters = useMemo(
+    () => consultations.filter((c) => isOpenStatus(c.status)).length,
+    [consultations]
+  );
+  const activeChat = useMemo(
+    () => consultations.filter((c) => normalizeStatus(c.status) === 'active').length,
+    [consultations]
+  );
+  const completed = useMemo(
+    () => consultations.filter((c) => normalizeStatus(c.status) === 'completed').length,
+    [consultations]
+  );
+
+  const metricCards = [
+    { label: 'Open Matters', value: openMatters, badge: 'Active', accent: 'blue' },
+    { label: 'Active Chats', value: activeChat, badge: 'Live', accent: 'teal' },
+    { label: 'AI Runs', value: aiCount, badge: 'History', accent: 'indigo' },
+    { label: 'Completed', value: completed, badge: 'Closed', accent: 'orange' },
+  ];
+
+  const upcoming = useMemo(() => {
+    const open = consultations.filter((c) => isOpenStatus(c.status));
+    const q = headerQuery.trim().toLowerCase();
+    const filtered = q
+      ? open.filter(
+          (c) =>
+            c.lawyerName.toLowerCase().includes(q) ||
+            c.specialization.toLowerCase().includes(q) ||
+            (c.clientMessage || '').toLowerCase().includes(q)
+        )
+      : open;
+    return filtered.slice(0, 5);
+  }, [consultations, headerQuery]);
+
+  const activity = useMemo(() => {
+    const fromCons = consultations.slice(0, 4).map((c) => ({
+      id: c.id,
+      type: 'CONSULTATION',
+      title: `${statusLabel(c.status)} · ${c.lawyerName}`,
+      timestamp: formatRelativeTime(c.createdAt),
+      detail: c.clientMessage || `${c.specialization} consultation`,
+    }));
+    // Keep demo activity rows; do not drop them when live data exists
+    const demo = DEMO_ACTIVITY.filter((a) => !fromCons.some((c) => c.title === a.title));
+    return [...fromCons, ...demo].slice(0, 8);
+  }, [consultations]);
 
   return (
-    <div className="flex min-h-screen bg-[#020617] text-slate-200">
+    <div className="min-h-screen bg-[#f6f7fb] text-slate-900">
       <UserSidebar />
 
-      <main className="flex-1 md:ml-[280px] p-6 md:p-12 overflow-y-auto">
-        <div className="max-w-7xl mx-auto space-y-10">
-          
-          {/* Welcome & Stats Header */}
-          <section className="relative overflow-hidden rounded-[40px] border border-white/10 bg-white/[0.03] p-8 md:p-12">
-            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-cyan-500/10" />
-            <div className="relative flex flex-col lg:flex-row gap-8 lg:items-end lg:justify-between">
-              <div className="max-w-3xl space-y-5">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">
-                  <UserRound size={14} className="text-indigo-400" />
-                  Client Dashboard
-                </div>
-                <h1 className="text-4xl md:text-6xl font-black tracking-tight text-white leading-tight">
-                  Welcome back, {user?.name || 'Client'}.
-                </h1>
-                <p className="max-w-2xl text-lg text-slate-400 leading-relaxed">
-                  Your legal workspace is ready. Search precedents, launch AI review, and manage consultations from a single command center.
-                </p>
+      <main className="min-h-screen min-w-0 md:pl-[260px] lg:pl-[280px]">
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 shadow-sm backdrop-blur md:px-6">
+          <div className="relative ml-12 w-full max-w-md md:ml-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm text-slate-700 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-200/60"
+              placeholder="Filter open consultations…"
+              type="text"
+              value={headerQuery}
+              onChange={(e) => setHeaderQuery(e.target.value)}
+            />
+          </div>
+          <div className="ml-4 flex items-center gap-3">
+            <Link
+              to="/consultations"
+              className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-50"
+              aria-label="Consultations"
+            >
+              <Bell size={18} />
+            </Link>
+            <Link
+              to="/profile"
+              className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-50"
+              aria-label="Profile settings"
+            >
+              <Settings size={18} />
+            </Link>
+            <div className="hidden h-8 w-px bg-slate-200 sm:block" />
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+                {initials}
               </div>
+              <span className="hidden text-sm font-medium text-slate-900 sm:inline">
+                Client Dashboard
+              </span>
+            </div>
+          </div>
+        </header>
 
-              <div className="grid grid-cols-2 gap-4 min-w-[280px]">
-                {[
-                  { label: 'Open Matters', value: MOCK_STATS.openMatters },
-                  { label: 'Saved Lawyers', value: MOCK_STATS.savedLawyers },
-                  { label: 'AI Runs', value: MOCK_STATS.aiRuns },
-                  { label: 'Response Time', value: MOCK_STATS.responseTime },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-[24px] border border-white/10 bg-[#020617]/60 p-4 backdrop-blur-xl">
-                    <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500">{item.label}</div>
-                    <div className="mt-2 text-2xl font-black text-white">{item.value}</div>
-                  </div>
-                ))}
+        <div className="mx-auto max-w-[1440px] p-4 md:p-8">
+          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-semibold text-[#0f2d5e]">
+                Welcome back, {displayName}
+              </h1>
+              <div className="mt-1 flex items-center gap-2 text-slate-600">
+                <CalendarDays size={16} />
+                <p className="text-sm">{todayLabel}</p>
               </div>
             </div>
-          </section>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to="/case-search"
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-300"
+              >
+                Search Cases
+              </Link>
+              <Link
+                to="/lawyers"
+                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-800"
+              >
+                Find a Lawyer
+              </Link>
+            </div>
+          </div>
 
-          {/* Quick Actions Grid */}
-          <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {metricCards.map((card) => (
+              <div
+                key={card.label}
+                className="rounded-xl border border-slate-200 border-l-4 bg-white p-5 shadow-sm"
+                style={{
+                  borderLeftColor:
+                    card.accent === 'blue'
+                      ? '#2563eb'
+                      : card.accent === 'teal'
+                        ? '#0d9488'
+                        : card.accent === 'indigo'
+                          ? '#4f46e5'
+                          : '#f97316',
+                }}
+              >
+                <div className="flex items-start justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    {card.label}
+                  </p>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${accentStyles[card.accent]}`}
+                  >
+                    {card.badge}
+                  </span>
+                </div>
+                <p className="mt-3 text-3xl font-bold text-[#0f2d5e]">
+                  {loading ? '—' : card.value}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {quickActions.map((action) => {
               const Icon = action.icon;
               return (
                 <Link
                   key={action.title}
                   to={action.path}
-                  className="group rounded-[32px] border border-white/10 bg-white/[0.03] p-6 transition-all duration-300 hover:-translate-y-1 hover:border-indigo-500/30 hover:bg-white/[0.06]"
+                  className="group rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-blue-200 hover:shadow-md"
                 >
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600/15 text-indigo-400 ring-1 ring-indigo-500/20">
-                    <Icon size={22} />
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                    <Icon size={20} />
                   </div>
-                  <div className="mt-6 flex items-start justify-between gap-4">
+                  <div className="mt-4 flex items-start justify-between gap-2">
                     <div>
-                      <h2 className="text-xl font-black text-white">{action.title}</h2>
-                      <p className="mt-2 text-sm leading-relaxed text-slate-400">{action.description}</p>
+                      <h2 className="text-base font-semibold text-[#0f2d5e]">{action.title}</h2>
+                      <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                        {action.description}
+                      </p>
                     </div>
-                    <ArrowUpRight size={18} className="mt-1 text-slate-500 transition-transform group-hover:translate-x-1 group-hover:-translate-y-1" />
+                    <ArrowUpRight
+                      size={16}
+                      className="mt-1 shrink-0 text-slate-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-blue-600"
+                    />
                   </div>
                 </Link>
               );
             })}
-          </section>
+          </div>
 
-          {/* Main Dashboard Grid */}
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-            
-            {/* Upcoming Consultations */}
-            <section className="xl:col-span-7 space-y-6">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+            <section className="space-y-4 lg:col-span-2">
               <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
-                  <CalendarDays className="text-indigo-400" size={24} />
-                  Upcoming Consultations
-                </h2>
-                <Link to="/consultations" className="text-[10px] font-black uppercase tracking-widest text-indigo-400 hover:text-white transition-colors">View All</Link>
+                <h2 className="text-xl font-semibold text-[#0f2d5e]">Upcoming Consultations</h2>
+                <Link
+                  to="/consultations"
+                  className="text-sm font-medium text-blue-600 hover:underline"
+                >
+                  View All
+                </Link>
               </div>
-              
-              <div className="grid grid-cols-1 gap-4">
-                {MOCK_CONSULTATIONS.map((cons) => (
-                  <div key={cons.id} className="glass-effect rounded-[32px] p-6 border border-white/5 hover:bg-white/[0.05] transition-all group flex flex-col md:flex-row md:items-center gap-6">
-                    <div className="w-16 h-16 rounded-2xl bg-indigo-600/10 flex items-center justify-center text-indigo-400 shrink-0">
-                      {cons.type === 'Video Call' ? <Video size={28} /> : <MapPin size={28} />}
-                    </div>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-3">
-                        <h3 className="font-black text-white">{cons.lawyerName}</h3>
-                        <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest ${
-                          cons.status === 'Confirmed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500'
-                        }`}>
-                          {cons.status}
-                        </span>
-                      </div>
-                      <p className="text-xs font-bold text-slate-500">{cons.specialization} • {cons.type}</p>
-                    </div>
-                    <div className="flex md:flex-col items-center md:items-end gap-4 md:gap-1 border-t md:border-t-0 md:border-l border-white/5 pt-4 md:pt-0 md:pl-6">
-                      <div className="text-sm font-black text-white">{cons.time}</div>
-                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{cons.date}</div>
-                    </div>
+
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                {loading && (
+                  <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-500">
+                    <Loader2 className="animate-spin" size={18} /> Loading…
                   </div>
-                ))}
+                )}
+                {!loading && upcoming.length === 0 && (
+                  <div className="p-10 text-center text-sm text-slate-500">
+                    No open consultations.{' '}
+                    <Link to="/lawyers" className="font-semibold text-blue-600 hover:underline">
+                      Find a lawyer
+                    </Link>
+                  </div>
+                )}
+                {!loading &&
+                  upcoming.map((cons, idx) => (
+                    <div
+                      key={cons.id}
+                      className={`flex flex-col gap-4 p-5 sm:flex-row sm:items-center ${
+                        idx !== upcoming.length - 1 ? 'border-b border-slate-100' : ''
+                      }`}
+                    >
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                        {cons.type === 'Video Call' ? (
+                          <Video size={22} />
+                        ) : cons.type === 'In-person' ? (
+                          <MapPin size={22} />
+                        ) : (
+                          <MessageCircle size={22} />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-slate-900">{cons.lawyerName}</h3>
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusBadgeClass(cons.status)}`}
+                          >
+                            {statusLabel(cons.status)}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {cons.specialization} · {cons.type}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm sm:flex-col sm:items-end sm:gap-0.5">
+                        <div className="flex items-center gap-1.5 font-semibold text-slate-900">
+                          <Clock size={14} className="text-slate-400" />
+                          {cons.time}
+                        </div>
+                        <div className="text-xs font-medium text-slate-500">{cons.date}</div>
+                      </div>
+                    </div>
+                  ))}
               </div>
             </section>
 
-            {/* Recent Activity */}
-            <section className="xl:col-span-5 space-y-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
-                  <History className="text-indigo-400" size={24} />
-                  Recent Activity
-                </h2>
-              </div>
-              
-              <div className="glass-effect rounded-[40px] border border-white/10 overflow-hidden bg-white/[0.02]">
-                <div className="p-2 space-y-1">
-                  {MOCK_ACTIVITY.map((activity, idx) => (
-                    <div key={activity.id} className={`flex items-start gap-4 p-5 rounded-[28px] transition-all hover:bg-white/5 ${idx !== MOCK_ACTIVITY.length - 1 ? 'border-b border-white/5' : ''}`}>
-                      <div className="mt-1">
-                        {activity.type === 'AI_SEARCH' && <Zap size={16} className="text-indigo-400" />}
-                        {activity.type === 'LAWYER_SAVE' && <CheckCircle2 size={16} className="text-emerald-400" />}
-                        {activity.type === 'CONSULTATION' && <CalendarDays size={16} className="text-blue-400" />}
-                        {activity.type === 'DOCUMENT' && <AlertCircle size={16} className="text-purple-400" />}
+            <aside className="space-y-6">
+              <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4">
+                  <History size={18} className="text-blue-600" />
+                  <h3 className="text-lg font-semibold text-[#0f2d5e]">Recent Activity</h3>
+                </div>
+                <div>
+                  {!loading && activity.length === 0 && (
+                    <p className="px-5 py-8 text-center text-sm text-slate-500">
+                      Activity from your consultations will show up here.
+                    </p>
+                  )}
+                  {activity.map((item, idx) => (
+                    <div
+                      key={item.id}
+                      className={`flex items-start gap-3 px-5 py-4 ${
+                        idx !== activity.length - 1 ? 'border-b border-slate-100' : ''
+                      }`}
+                    >
+                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50">
+                        {activityIcon(item.type)}
                       </div>
-                      <div className="flex-1 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-black text-white tracking-tight">{activity.title}</h4>
-                          <span className="text-[9px] font-bold text-slate-600 uppercase">{activity.timestamp}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="text-sm font-semibold text-slate-900">{item.title}</h4>
+                          <span className="shrink-0 text-[11px] text-slate-400">
+                            {item.timestamp}
+                          </span>
                         </div>
-                        <p className="text-xs font-medium text-slate-500 leading-relaxed">{activity.detail}</p>
+                        <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                          {item.detail}
+                        </p>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
-            </section>
 
+              <div className="relative overflow-hidden rounded-xl bg-[#0f2d5e] p-6 text-white">
+                <div className="absolute -right-8 -top-8 h-36 w-36 rounded-full bg-blue-400/20 blur-2xl" />
+                <div className="relative z-10">
+                  <p className="text-xs font-bold uppercase tracking-widest text-blue-200">
+                    Need guidance?
+                  </p>
+                  <h3 className="mt-2 text-xl font-semibold">Ask the AI assistant</h3>
+                  <p className="mt-2 text-sm text-blue-100/90">
+                    Get structured analysis, then match with a specialist lawyer.
+                  </p>
+                  <Link
+                    to="/assistant"
+                    className="mt-5 inline-flex rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#0f2d5e] transition-colors hover:bg-blue-50"
+                  >
+                    Open AI Assistant
+                  </Link>
+                </div>
+              </div>
+            </aside>
           </div>
         </div>
       </main>
     </div>
   );
-}
+}

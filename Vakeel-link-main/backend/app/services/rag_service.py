@@ -1,42 +1,57 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+
 from app.services.rag.retrieval_from_qdrant import LegalRetriever
 from app.services.rag.qa_engine import LegalQAEngine
 
+
 class RagService:
     """
-    A shared core service that wraps the retrieval engine and QA engine.
-    This acts as a singleton or centralized service to ensure we don't 
-    duplicate pipeline logic or unnecessarily re-initialize models across endpoints.
+    Shared RAG service (lazy singleton).
+
+    Embedding model + Qdrant client load on first use so /health stays fast
+    and import-time failures do not kill the whole API process.
     """
+
     _instance = None
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(RagService, cls).__new__(cls)
-            cls._instance.retriever = LegalRetriever()
-            cls._instance.qa_engine = LegalQAEngine(retriever=cls._instance.retriever)
+            cls._instance._retriever: Optional[LegalRetriever] = None
+            cls._instance._qa_engine: Optional[LegalQAEngine] = None
         return cls._instance
 
+    def _ensure_ready(self) -> None:
+        if self._retriever is None:
+            print("[RAG] Initializing LegalRetriever (embedding model + Qdrant)...")
+            self._retriever = LegalRetriever()
+        if self._qa_engine is None:
+            print("[RAG] Initializing LegalQAEngine...")
+            self._qa_engine = LegalQAEngine(retriever=self._retriever)
+
+    @property
+    def retriever(self) -> LegalRetriever:
+        self._ensure_ready()
+        return self._retriever  # type: ignore[return-value]
+
+    @property
+    def qa_engine(self) -> LegalQAEngine:
+        self._ensure_ready()
+        return self._qa_engine  # type: ignore[return-value]
+
     def retrieve_context(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """
-        Endpoint 1 use-case: Quick search without generation.
-        Returns relevant chunks and metadata (hybrid search + MMR).
-        """
+        """Quick search without generation (hybrid search path)."""
         return self.retriever.search(query, top_k=top_k, score_threshold=0.45)
 
     def generate_answer(self, query: str) -> Dict[str, Any]:
-        """
-        Endpoint 2 use-case: Full generative QA.
-        Generates a comprehensive answer using the RAG pipeline.
-        """
+        """Full generative QA via the RAG pipeline."""
         return self.qa_engine.ask(query)
-        
+
     async def run_query(self, query: str) -> Dict[str, Any]:
-        """
-        Clean async wrapper for the RAG pipeline.
-        Returns: domain, answer, citations.
-        """
+        """Async wrapper for the RAG pipeline."""
         import asyncio
+
         return await asyncio.to_thread(self.qa_engine.ask, query)
+
 
 rag_service = RagService()

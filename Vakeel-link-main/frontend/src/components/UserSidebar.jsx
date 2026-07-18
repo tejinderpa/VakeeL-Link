@@ -1,17 +1,27 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import useAuth from './useAuth';
-import { 
-  MessageSquare, 
-  Search, 
-  Users, 
-  Calendar, 
-  User, 
+import {
+  MessageSquare,
+  Search,
+  Users,
+  Calendar,
+  User,
   Scale,
   Menu,
   X,
-  LogOut
+  LogOut,
+  LayoutDashboard,
 } from 'lucide-react';
+
+const NAV_ITEMS = [
+  { name: 'Dashboard', path: '/dashboard/user', icon: LayoutDashboard, match: (p) => p.startsWith('/dashboard/user') },
+  { name: 'AI Assistant', path: '/assistant', icon: MessageSquare, match: (p) => p.startsWith('/assistant') },
+  { name: 'Case Search', path: '/case-search', icon: Search, match: (p) => p.startsWith('/case-search') },
+  { name: 'Find Lawyers', path: '/lawyers', icon: Users, match: (p) => p.startsWith('/lawyers') },
+  { name: 'My Consultations', path: '/consultations', icon: Calendar, match: (p) => p.startsWith('/consultations') },
+  { name: 'Profile', path: '/profile', icon: User, match: (p) => p.startsWith('/profile') },
+];
 
 const UserSidebar = () => {
   const { user, logout } = useAuth();
@@ -21,20 +31,11 @@ const UserSidebar = () => {
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-
     const mainScrollContainer = document.querySelector('main.overflow-y-auto');
     if (mainScrollContainer) {
       mainScrollContainer.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     }
   }, [location.pathname]);
-
-  const navItems = [
-    { name: 'AI Assistant', path: '/assistant', icon: MessageSquare },
-    { name: 'Case Search', path: '/case-search', icon: Search },
-    { name: 'Find Lawyers', path: '/lawyers', icon: Users },
-    { name: 'My Consultations', path: '/consultations', icon: Calendar },
-    { name: 'Profile', path: '/profile', icon: User },
-  ];
 
   const handleLogout = () => {
     logout();
@@ -42,89 +43,101 @@ const UserSidebar = () => {
     navigate('/');
   };
 
+  const displayName = user?.name || user?.full_name || 'Client';
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase())
+    .join('');
+
   return (
     <>
-      {/* Mobile Toggle */}
-      <button 
+      <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="md:hidden fixed top-6 left-6 z-[60] glass-effect text-white p-3 rounded-2xl shadow-2xl"
+        className="fixed left-4 top-4 z-[60] rounded-xl bg-[#0f2d5e] p-2.5 text-white shadow-md md:hidden"
+        aria-label="Toggle menu"
       >
         {isOpen ? <X size={20} /> : <Menu size={20} />}
       </button>
 
-      {/* Sidebar */}
-      <aside className={`
-        fixed left-0 top-0 h-screen bg-[#020617]/80 backdrop-blur-xl border-r border-white/5 text-white flex flex-col z-50 transition-all duration-500 ease-in-out
-        ${isOpen ? 'w-[280px] translate-x-0' : 'w-[280px] -translate-x-full md:translate-x-0'}
-      `}>
-        <Link to="/" onClick={() => setIsOpen(false)} className="p-8 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl primary-gradient flex items-center justify-center shadow-lg shadow-indigo-500/20">
-            <Scale className="text-white" size={22} />
-          </div>
-          <span className="text-2xl font-black tracking-tighter text-gradient">VakeelLink</span>
-        </Link>
-        
-        <nav className="flex-1 mt-8 px-6 space-y-3">
-          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-4 px-4">Main Menu</div>
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
+      <aside
+        className={`
+          fixed left-0 top-0 z-50 flex h-full w-[260px] flex-col border-r border-white/10 bg-[#0f2d5e] text-sm text-slate-200 shadow-xl transition-transform duration-300 ease-in-out lg:w-[280px]
+          ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+      >
+        <div className="shrink-0 border-b border-white/10 px-5 py-5">
+          <Link to="/" onClick={() => setIsOpen(false)} className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/25 text-white ring-1 ring-white/10">
+              <Scale size={20} />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-lg font-black tracking-tight text-white">
+                Vakeel<span className="text-blue-300">Link</span>
+              </div>
+              <div className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-blue-300/80">
+                Client portal
+              </div>
+            </div>
+          </Link>
+        </div>
+
+        <nav className="mt-3 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">
+          {NAV_ITEMS.map((item) => {
+            const isActive = item.match(location.pathname);
             const Icon = item.icon;
-            
+
             return (
               <Link
                 key={item.path}
                 to={item.path}
                 onClick={() => setIsOpen(false)}
-                className={`flex items-center gap-4 px-5 py-4 rounded-2xl transition-all duration-300 group ${
-                  isActive 
-                    ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 shadow-[0_0_20px_rgba(99,102,241,0.1)]' 
-                    : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-150 ${
+                  isActive
+                    ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10'
+                    : 'text-slate-300 hover:bg-white/5 hover:text-white'
                 }`}
               >
-                <div className={`transition-colors duration-300 ${isActive ? 'text-indigo-400' : 'group-hover:text-white'}`}>
-                  <Icon size={20} />
-                </div>
-                <span className="font-semibold text-[15px]">{item.name}</span>
-                {isActive && (
-                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.8)]" />
-                )}
+                <Icon size={18} className={isActive ? 'text-blue-300' : 'text-slate-400'} />
+                <span className="font-semibold">{item.name}</span>
               </Link>
             );
           })}
         </nav>
 
-        <div className="p-6 mt-auto space-y-3">
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-rose-300 hover:bg-rose-500/20 transition-all text-[10px] font-black uppercase tracking-widest"
-          >
-            <LogOut size={16} />
-            Logout
-          </button>
-          <div className="glass-effect rounded-[24px] p-5 border border-white/5 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 blur-2xl rounded-full -mr-12 -mt-12 transition-all group-hover:bg-indigo-500/20" />
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold shadow-lg text-white">
-                  {user?.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase() : 'U'}
-                </div>
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-[#0f172a] rounded-full shadow-lg" />
-              </div>
-              <div className="flex flex-col overflow-hidden">
-                <span className="text-sm font-bold text-white truncate">{user?.name || 'Authorized User'}</span>
-                <span className="text-[11px] font-medium text-slate-500">{user?.role || 'Premium'} Plan</span>
-              </div>
+        <div className="shrink-0 border-t border-white/10 p-4">
+          <div className="mb-2 flex items-center gap-3 rounded-xl bg-white/5 px-3 py-2.5 ring-1 ring-white/10">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-500/40 text-xs font-bold text-white">
+              {initials || 'CL'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-white" title={displayName}>
+                {displayName}
+              </p>
+              <p className="truncate text-[10px] uppercase tracking-wider text-slate-400">
+                {user?.email || 'Client account'}
+              </p>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-slate-300 transition-all hover:bg-white/5 hover:text-white"
+          >
+            <LogOut size={18} />
+            <span className="font-semibold">Logout</span>
+          </button>
         </div>
       </aside>
 
-      {/* Overlay for mobile */}
       {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-300"
+        <div
+          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm md:hidden"
           onClick={() => setIsOpen(false)}
-        ></div>
+          aria-hidden
+        />
       )}
     </>
   );
