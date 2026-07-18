@@ -21,11 +21,9 @@ services:
     region: singapore
     plan: free
     rootDir: Vakeel-link-main/backend
-    buildCommand: |
-      pip install --upgrade pip
-      pip install torch --index-url https://download.pytorch.org/whl/cpu
-      pip install -r requirements-render.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    # Single line with && — multi-line paste in Render UI often breaks into one bad pip command
+    buildCommand: "chmod +x ./build.sh && ./build.sh"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1"
     healthCheckPath: /health
     autoDeploy: true
     envVars:

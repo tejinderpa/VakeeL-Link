@@ -65,13 +65,21 @@ Do **not** commit `backend/.env` (secrets).
 | **Instance type** | Free |
 | **Health check path** | `/health` |
 
-**Build Command:**
+**Build Command** (paste as **one line**, or use the script):
 
 ```bash
-pip install --upgrade pip
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements-render.txt
+chmod +x ./build.sh && ./build.sh
 ```
+
+Or one-liner without the script:
+
+```bash
+python -m pip install --upgrade pip && python -m pip install torch --index-url https://download.pytorch.org/whl/cpu && python -m pip install -r requirements-render.txt
+```
+
+**Important:** Do **not** paste three separate lines without `&&` between them. Render will glue them into one broken command like `pip install --upgrade pip pip install torch...` and fail with `No matching distribution found for install`.
+
+Also set env var **`PYTHON_VERSION`** = `3.11.9` (do not use 3.14 — packages often break).
 
 ---
 
