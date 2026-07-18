@@ -1,6 +1,18 @@
-# Alternate blueprint if the Git root is Vakeel-link-main only.
-# Prefer the render.yaml at the monorepo root (Hack-vakeel2/render.yaml)
-# which sets rootDir: Vakeel-link-main/backend.
+# Render Blueprint — VakeelLink API (free web service)
+# =====================================================
+# Repo root is Hack-vakeel2 (contains Vakeel-link-main/).
+#
+# Deploy:
+#   1. Push this repo to GitHub (already: tejinderpa/VakeeL-Link).
+#   2. https://dashboard.render.com → New → Blueprint → connect repo
+#      OR New → Web Service → connect repo and paste settings below.
+#   3. Add secret env vars in the Render dashboard (sync: false ones).
+#   4. After deploy, open https://YOUR-SERVICE.onrender.com/health
+#
+# Free tier notes:
+#   - Spins down after ~15 min idle (first request is slow).
+#   - 512 MB RAM — embedding model may OOM; auth/consultations still work.
+#   - Upgrade to Starter if AI RAG is flaky on free.
 
 services:
   - type: web
@@ -8,7 +20,7 @@ services:
     runtime: python
     region: singapore
     plan: free
-    rootDir: backend
+    rootDir: Vakeel-link-main/backend
     buildCommand: |
       pip install --upgrade pip
       pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -31,6 +43,7 @@ services:
         value: "true"
       - key: EMBEDDING_MODEL_NAME
         value: sentence-transformers/all-MiniLM-L6-v2
+      # Comma-separated frontend URLs (set after you deploy Vercel/Netlify)
       - key: CORS_ORIGINS
         sync: false
       - key: SUPABASE_URL

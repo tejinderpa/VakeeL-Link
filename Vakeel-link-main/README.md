@@ -237,7 +237,9 @@ Auth token is stored as `vakeellink_token` and sent as `Authorization: Bearer â€
 
 ## Deploy notes (Render)
 
-See `render.yaml` for a free-tier FastAPI service blueprint. Set all env vars in the Render dashboard. Frontend can be deployed separately (Vercel/Netlify/static) with `VITE_API_URL` pointing at the Render API URL. Add that origin to CORS in `backend/app/main.py` if needed.
+**Full step-by-step guide:** see [`DEPLOY.md`](./DEPLOY.md).
+
+Use a Render **Web Service** (not static). Blueprint: repo-root `render.yaml` with `rootDir: Vakeel-link-main/backend`. Set secrets in the Render dashboard (`SUPABASE_*`, `GROQ_API_KEY`, `CORS_ORIGINS`, etc.). Frontend (Vercel/Netlify) should set `VITE_API_URL=https://YOUR-SERVICE.onrender.com` and that origin must be listed in `CORS_ORIGINS`.
 
 ---
 

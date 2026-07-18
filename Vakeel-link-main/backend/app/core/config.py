@@ -16,6 +16,11 @@ else:
 class Settings(BaseSettings):
     PROJECT_NAME: str = "VakeelLink API"
     API_V1_STR: str = "/api/v1"
+    ENVIRONMENT: str = "development"
+
+    # Comma-separated extra browser origins for CORS (production frontend URLs).
+    # Example: https://vakeellink.vercel.app,https://www.example.com
+    CORS_ORIGINS: str = ""
 
     # Supabase config
     SUPABASE_URL: str = ""
@@ -56,6 +61,30 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    def cors_origin_list(self) -> list[str]:
+        """Local dev defaults + any production origins from CORS_ORIGINS."""
+        defaults = [
+            "http://localhost:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:5174",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+        ]
+        extra = [
+            o.strip().rstrip("/")
+            for o in str(self.CORS_ORIGINS or "").split(",")
+            if o.strip()
+        ]
+        # de-dupe, preserve order
+        seen: set[str] = set()
+        out: list[str] = []
+        for origin in defaults + extra:
+            if origin not in seen:
+                seen.add(origin)
+                out.append(origin)
+        return out
 
 
 def _resolve_data_dir(configured: str, *fallback_parts: str) -> str:
