@@ -1,62 +1,134 @@
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Scale, CheckCircle2 } from 'lucide-react';
 import './AuthBrandPanel.css';
 
-// Client: Lady Justice image from Legodesk Indian Judiciary article
 const CLIENT_IMAGE = '/media/auth-client-judicial.jpg?v=legodesk';
 const LAWYER_IMAGE = '/media/auth-lawyer-judicial.jpg';
 
+const COPY = {
+  client: {
+    login: {
+      pill: 'Client portal',
+      title: 'Your legal workspace, ready when you are.',
+      subtitle:
+        'Sign in to research case law, track matters, and stay connected with advocates.',
+      bullets: ['Private client workspace', 'AI-assisted research', 'Book verified advocates'],
+      footer: 'Secure access for clients and licensed advocates.',
+    },
+    signup: {
+      pill: 'Client portal',
+      title: 'Create your client account.',
+      subtitle: 'Research the law, organise your matter, and connect with the right advocate.',
+      bullets: ['Structured case review', 'Lawyer directory access', 'Consultation booking'],
+      footer: 'Free to start. No credit card required.',
+    },
+  },
+  lawyer: {
+    login: {
+      pill: 'Advocate portal',
+      title: 'Advocate workspace awaits.',
+      subtitle: 'Sign in to manage consultations, case files, and client requests.',
+      bullets: ['Secure client consultations', 'Practice dashboard', 'Verified profile access'],
+      footer: 'Licensed advocates only. Secure professional access.',
+    },
+    signup: {
+      pill: 'Advocate portal',
+      title: 'Join as a verified advocate.',
+      subtitle: 'Receive consultation requests, manage case files, and grow your practice online.',
+      bullets: ['Consultation request inbox', 'Case file workspace', 'Verified advocate profile'],
+      footer: 'Bar Council ID required for advocate verification.',
+    },
+  },
+};
+
+function preload(urls) {
+  urls.forEach((src) => {
+    const img = new Image();
+    img.src = src;
+  });
+}
+
 /**
- * Left brand panel for Login / Signup — judicial imagery for client & lawyer.
+ * Left brand panel for Login / Signup — soft crossfade between client / advocate art.
  * @param {'client' | 'lawyer'} role
  * @param {'login' | 'signup'} mode
  */
 export default function AuthBrandPanel({ role = 'client', mode = 'login' }) {
   const isLawyer = role === 'lawyer';
-  const imageSrc = isLawyer ? LAWYER_IMAGE : CLIENT_IMAGE;
+  const targetSrc = isLawyer ? LAWYER_IMAGE : CLIENT_IMAGE;
+  const copy = COPY[isLawyer ? 'lawyer' : 'client'][mode === 'signup' ? 'signup' : 'login'];
 
-  const title =
-    mode === 'signup'
-      ? isLawyer
-        ? 'Join as a verified advocate.'
-        : 'Create your client account.'
-      : isLawyer
-        ? 'Advocate workspace awaits.'
-        : 'Your legal workspace, ready when you are.';
+  const [activeSrc, setActiveSrc] = useState(targetSrc);
+  const [prevSrc, setPrevSrc] = useState(null);
+  const [imgReady, setImgReady] = useState(false);
+  const [textKey, setTextKey] = useState(`${role}-${mode}`);
+  const activeRef = useRef(targetSrc);
 
-  const subtitle =
-    mode === 'signup'
-      ? isLawyer
-        ? 'Receive consultation requests, manage case files, and grow your practice online.'
-        : 'Research the law, organise your matter, and connect with the right advocate.'
-      : isLawyer
-        ? 'Sign in to manage consultations, case files, and client requests.'
-        : 'Sign in to research case law, track matters, and stay connected with advocates.';
+  useEffect(() => {
+    preload([CLIENT_IMAGE, LAWYER_IMAGE]);
+  }, []);
 
-  const bullets =
-    mode === 'signup'
-      ? isLawyer
-        ? ['Consultation request inbox', 'Case file workspace', 'Verified advocate profile']
-        : ['Structured case review', 'Lawyer directory access', 'Consultation booking']
-      : isLawyer
-        ? ['Secure client consultations', 'Practice dashboard', 'Verified profile access']
-        : ['Private client workspace', 'AI-assisted research', 'Book verified advocates'];
+  useEffect(() => {
+    setTextKey(`${role}-${mode}`);
+  }, [role, mode]);
 
-  const footer = isLawyer
-    ? mode === 'signup'
-      ? 'Bar Council ID required for advocate verification.'
-      : 'Licensed advocates only. Secure professional access.'
-    : mode === 'signup'
-      ? 'Free to start. No credit card required.'
-      : 'Secure access for clients and licensed advocates.';
+  // Soft crossfade: wait for the next image, keep previous underlay, then fade
+  useEffect(() => {
+    if (targetSrc === activeRef.current) {
+      // Ensure first paint still fades in
+      setImgReady(true);
+      return undefined;
+    }
+
+    let cancelled = false;
+    let fadeTimer;
+    const previous = activeRef.current;
+    const img = new Image();
+    img.src = targetSrc;
+
+    const apply = () => {
+      if (cancelled) return;
+      setPrevSrc(previous);
+      activeRef.current = targetSrc;
+      setActiveSrc(targetSrc);
+      setImgReady(false);
+      requestAnimationFrame(() => {
+        if (!cancelled) setImgReady(true);
+      });
+      fadeTimer = window.setTimeout(() => {
+        if (!cancelled) setPrevSrc(null);
+      }, 720);
+    };
+
+    if (img.complete) apply();
+    else {
+      img.onload = apply;
+      img.onerror = apply;
+    }
+
+    return () => {
+      cancelled = true;
+      if (fadeTimer) window.clearTimeout(fadeTimer);
+    };
+  }, [targetSrc]);
 
   return (
-    <div className="auth-brand">
+    <div className="auth-brand" data-role={isLawyer ? 'lawyer' : 'client'}>
+      {prevSrc ? (
+        <img
+          className="auth-brand-img auth-brand-img--under"
+          src={prevSrc}
+          alt=""
+          aria-hidden
+          draggable={false}
+        />
+      ) : null}
       <img
-        key={imageSrc}
-        className="auth-brand-img"
-        src={imageSrc}
+        className={`auth-brand-img auth-brand-img--active ${imgReady ? 'is-ready' : ''}`}
+        src={activeSrc}
         alt={isLawyer ? 'Courtroom — advocate portal' : 'Lady Justice — Indian judiciary client portal'}
+        draggable={false}
       />
       <div className="auth-brand-scrim" aria-hidden />
       <div className="auth-brand-glow" aria-hidden />
@@ -71,15 +143,13 @@ export default function AuthBrandPanel({ role = 'client', mode = 'login' }) {
           </span>
         </Link>
 
-        <div className="auth-brand-body">
-          <div className="auth-brand-pill">
-            {isLawyer ? 'Advocate portal' : 'Client portal'}
-          </div>
-          <h2>{title}</h2>
-          <p>{subtitle}</p>
+        <div className="auth-brand-body" key={textKey}>
+          <div className="auth-brand-pill">{copy.pill}</div>
+          <h2>{copy.title}</h2>
+          <p>{copy.subtitle}</p>
 
           <ul>
-            {bullets.map((item) => (
+            {copy.bullets.map((item) => (
               <li key={item}>
                 <CheckCircle2 size={16} />
                 {item}
@@ -88,7 +158,7 @@ export default function AuthBrandPanel({ role = 'client', mode = 'login' }) {
           </ul>
         </div>
 
-        <p className="auth-brand-foot">{footer}</p>
+        <p className="auth-brand-foot">{copy.footer}</p>
       </div>
     </div>
   );

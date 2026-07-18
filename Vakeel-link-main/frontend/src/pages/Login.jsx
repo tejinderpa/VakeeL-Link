@@ -1,9 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import useAuth from '../components/useAuth';
 import AuthBrandPanel from '../components/AuthBrandPanel';
+import AuthPortalToggle from '../components/AuthPortalToggle';
 import { ArrowRight, Mail, Lock, Scale, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { API_BASE_URL, networkErrorMessage } from '../utils/api';
+import {
+  normalizePortal,
+  resolveAuthPortal,
+  signupPathForPortal,
+  writeStoredPortal,
+} from '../utils/authPortal';
 
 const normalizeRole = (role) => {
   if (!role) return 'user';
@@ -18,20 +25,63 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   const { login } = useAuth();
 
-  const initialPortal =
-    searchParams.get('role') === 'lawyer' || location.state?.role === 'lawyer'
-      ? 'lawyer'
-      : 'client';
+  const resolved = useMemo(
+    () => resolveAuthPortal({ state: location.state, searchParams }),
+    [location.state, searchParams]
+  );
 
-  const [portal, setPortal] = useState(initialPortal);
+  const [portal, setPortal] = useState(resolved.portal);
+  const [portalLocked, setPortalLocked] = useState(resolved.locked);
   const [formData, setFormData] = useState({
-    email: '',
+    email: location.state?.email || '',
     password: '',
   });
   const [loading, setLoading] = useState(false);
+  const [pageReady, setPageReady] = useState(false);
   const [error, setError] = useState('');
 
   const successMessage = location.state?.message;
+
+  // Sync when URL/state changes (e.g. signup → login handoff)
+  useEffect(() => {
+    const next = resolveAuthPortal({ state: location.state, searchParams });
+    setPortal(next.portal);
+    setPortalLocked(next.locked);
+    writeStoredPortal(next.portal);
+  }, [location.state, searchParams]);
+
+  // Soft page entrance
+  useEffect(() => {
+    const t = window.requestAnimationFrame(() => setPageReady(true));
+    return () => window.cancelAnimationFrame(t);
+  }, []);
+
+  // Prefill email from signup handoff once
+  useEffect(() => {
+    if (location.state?.email && !formData.email) {
+      setFormData((prev) => ({ ...prev, email: location.state.email }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.email]);
+
+  const handlePortalChange = (next, { unlock } = {}) => {
+    const p = normalizePortal(next);
+    setPortal(p);
+    writeStoredPortal(p);
+    if (unlock) setPortalLocked(false);
+    // Keep URL in sync; clear roleLocked from history so unlock sticks after URL update
+    const params = new URLSearchParams(searchParams);
+    params.set('role', p);
+    navigate(
+      { pathname: '/login', search: `?${params.toString()}` },
+      {
+        replace: true,
+        state: unlock
+          ? { ...(location.state || {}), role: p, roleLocked: false }
+          : { ...(location.state || {}), role: p, roleLocked: portalLocked },
+      }
+    );
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -70,7 +120,6 @@ export default function Login() {
                 ? data.message
                 : 'Invalid email or password';
 
-        // Friendlier copy for the common Windows DNS failure against a dead Supabase host
         if (/getaddrinfo|11001|failed to resolve|cannot reach supabase/i.test(detail)) {
           detail =
             'Cannot reach Supabase (DNS). Your SUPABASE_URL project host may be deleted or paused. ' +
@@ -102,19 +151,16 @@ export default function Login() {
         throw new Error('Login succeeded but no access token was returned.');
       }
 
-      // Portal is UI-only; the account role comes from the backend
       if (portal === 'lawyer' && role !== 'lawyer') {
         throw new Error(
           'This account is registered as a client, not an advocate. ' +
             'Sign up with role Advocate (Bar Council ID required), or switch to the Client portal.'
         );
       }
-      if (portal === 'client' && role === 'lawyer') {
-        // Still allow login; send them to the lawyer dashboard
-      }
 
       login(userData, data.access_token);
       localStorage.removeItem('vakeellink_pending_registration');
+      writeStoredPortal(role === 'lawyer' ? 'lawyer' : 'client');
 
       const redirect = location.state?.from || (role === 'lawyer' ? '/dashboard/lawyer' : '/dashboard/user');
       navigate(redirect);
@@ -149,13 +195,20 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#faf8ff] text-slate-900">
+    <div
+      className={`min-h-screen bg-[#faf8ff] text-slate-900 transition-opacity duration-500 ease-out ${
+        pageReady ? 'opacity-100' : 'opacity-0'
+      }`}
+    >
       <div className="grid min-h-screen lg:grid-cols-2">
         <AuthBrandPanel role={portal} mode="login" />
 
-        {/* Form panel */}
         <div className="flex flex-col justify-center px-4 py-12 sm:px-8 lg:px-12 xl:px-20">
-          <div className="mx-auto w-full max-w-md">
+          <div
+            className={`mx-auto w-full max-w-md transition-all duration-500 ease-out ${
+              pageReady ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'
+            }`}
+          >
             <Link to="/" className="mb-8 flex items-center gap-2.5 lg:hidden">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#0f2d5e] text-white">
                 <Scale size={18} />
@@ -168,35 +221,17 @@ export default function Login() {
             <h1 className="text-3xl font-bold tracking-tight text-[#0f2d5e]">Welcome back</h1>
             <p className="mt-2 text-sm text-slate-500">
               Sign in to your {portal === 'lawyer' ? 'advocate' : 'client'} account.
+              {portalLocked ? ' Your portal is already selected from registration.' : ''}
             </p>
 
-            <div className="mt-6 grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-1.5 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setPortal('client')}
-                className={`rounded-lg py-2.5 text-sm font-semibold transition-colors ${
-                  portal === 'client'
-                    ? 'bg-[#0f2d5e] text-white'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                Client
-              </button>
-              <button
-                type="button"
-                onClick={() => setPortal('lawyer')}
-                className={`rounded-lg py-2.5 text-sm font-semibold transition-colors ${
-                  portal === 'lawyer'
-                    ? 'bg-[#0f2d5e] text-white'
-                    : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                Advocate
-              </button>
-            </div>
+            <AuthPortalToggle
+              portal={portal}
+              locked={portalLocked}
+              onChange={handlePortalChange}
+            />
 
             {successMessage && (
-              <div className="mt-6 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+              <div className="mt-6 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 animate-[auth-rise_0.4s_ease-out]">
                 <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
                 <span>{successMessage}</span>
               </div>
@@ -229,7 +264,8 @@ export default function Login() {
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="you@example.com"
-                    className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    autoComplete="email"
+                    className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                     required
                   />
                 </div>
@@ -259,7 +295,8 @@ export default function Login() {
                     value={formData.password}
                     onChange={handleChange}
                     placeholder="••••••••"
-                    className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-shadow focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    autoComplete="current-password"
+                    className="w-full rounded-lg border border-slate-300 bg-white py-3 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                     required
                   />
                 </div>
@@ -268,10 +305,13 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-700 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-800 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-700 py-3 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? (
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  <>
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    <span>Signing in…</span>
+                  </>
                 ) : (
                   <>
                     Sign in
@@ -284,19 +324,27 @@ export default function Login() {
             <p className="mt-8 text-center text-sm text-slate-500">
               Don&apos;t have an account?{' '}
               <Link
-                to={portal === 'lawyer' ? '/signup?role=lawyer' : '/signup'}
+                to={signupPathForPortal(portal)}
+                state={{ role: portal, roleLocked: true }}
                 className="font-semibold text-blue-700 hover:text-blue-800"
               >
                 Create one
               </Link>
             </p>
 
-            <p className="mt-4 text-center text-xs text-slate-400">
-              Demo advocate login: <span className="font-medium text-slate-500">lawyer@example.com</span>
-              {' / '}
-              <span className="font-medium text-slate-500">lawyer123</span>
-              . New advocates must sign up with a Bar Council ID (e.g. D/1234/2019).
-            </p>
+            {portal === 'lawyer' ? (
+              <p className="mt-4 text-center text-xs text-slate-400">
+                Demo advocate:{' '}
+                <span className="font-medium text-slate-500">lawyer@example.com</span>
+                {' / '}
+                <span className="font-medium text-slate-500">lawyer123</span>
+                . New advocates need a Bar Council ID (e.g. D/1234/2019).
+              </p>
+            ) : (
+              <p className="mt-4 text-center text-xs text-slate-400">
+                New here? Create a free client account — your portal choice carries to sign-in.
+              </p>
+            )}
           </div>
         </div>
       </div>
