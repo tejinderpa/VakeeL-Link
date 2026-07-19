@@ -78,7 +78,89 @@ body {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
-/* ── Professional interaction polish (portal-wide) ───────────────────────── */
+/* ── Thin wire accent + slanted-line sweep (all pages) ───────────────────── */
+.portal-wire-bar {
+  position: relative;
+  height: 3px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: linear-gradient(90deg, #0a2348 0%, #0f2d5e 40%, #1d4ed8 70%, #0f2d5e 100%);
+  box-shadow: 0 1px 0 rgba(15, 45, 94, 0.25);
+}
+
+.portal-wire-track {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Slanted hatch lines that race left → right on load / refresh / route change */
+.portal-wire-sweep {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  background-image: repeating-linear-gradient(
+    -55deg,
+    transparent 0,
+    transparent 5px,
+    rgba(255, 255, 255, 0.08) 5px,
+    rgba(255, 255, 255, 0.08) 7px,
+    transparent 7px,
+    transparent 12px,
+    rgba(147, 197, 253, 0.55) 12px,
+    rgba(191, 219, 254, 0.9) 14px,
+    transparent 14px,
+    transparent 20px
+  );
+  background-size: 200% 100%;
+  animation: portal-wire-sweep-lr 1.15s cubic-bezier(0.4, 0, 0.2, 1) 1 both;
+  pointer-events: none;
+}
+
+@keyframes portal-wire-sweep-lr {
+  0% {
+    background-position: 100% 0;
+    opacity: 0.35;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    background-position: -100% 0;
+    opacity: 0.55;
+  }
+}
+
+/* Soft idle shimmer after sweep settles */
+.portal-wire-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 50%,
+    transparent 100%
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: portal-wire-idle 4.5s ease-in-out infinite;
+  animation-delay: 1.2s;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+@keyframes portal-wire-idle {
+  0% {
+    background-position: -40% 0;
+  }
+  100% {
+    background-position: 140% 0;
+  }
+}
+
+/* Legacy class kept for any residual usage */
 .portal-top-strip {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }

@@ -2954,21 +2954,6 @@ export default function LawyerDashboard() {
       />
 
       <main className="min-h-screen min-w-0 pl-[260px] lg:pl-[280px]">
-        {/* Professional blue status strip */}
-        <div className="portal-top-strip flex h-9 items-center justify-between gap-3 bg-gradient-to-r from-[#0a2348] via-[#0f2d5e] to-[#1e3a8a] px-4 text-[11px] font-medium text-white sm:px-6">
-          <div className="flex min-w-0 items-center gap-2">
-            <Scale size={13} className="shrink-0 text-blue-200" />
-            <span className="truncate text-blue-50">
-              Advocate workspace · <span className="text-white/90">{displayName}</span>
-            </span>
-          </div>
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <span className="hidden text-blue-100/90 md:inline">Confidential counsel</span>
-            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-white/15">
-              {unreadCount > 0 ? `${unreadCount} new` : 'Live'}
-            </span>
-          </div>
-        </div>
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-slate-200/80 bg-white/95 px-4 shadow-sm backdrop-blur sm:h-16 sm:px-6">
           <div className="relative min-w-0 flex-1 max-w-md">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
