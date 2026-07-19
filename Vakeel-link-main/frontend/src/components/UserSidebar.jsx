@@ -7,12 +7,12 @@ import {
   Users,
   Calendar,
   User,
-  Scale,
   Menu,
   X,
   LogOut,
   LayoutDashboard,
 } from 'lucide-react';
+import BrandLogo from './BrandLogo';
 
 const NAV_ITEMS = [
   { name: 'Dashboard', path: '/dashboard/user', icon: LayoutDashboard, match: (p) => p.startsWith('/dashboard/user') },
@@ -64,24 +64,17 @@ const UserSidebar = () => {
 
       <aside
         className={`
-          fixed left-0 top-0 z-50 flex h-full w-[260px] flex-col border-r border-white/10 bg-[#0f2d5e] text-sm text-slate-200 shadow-xl transition-transform duration-300 ease-in-out lg:w-[280px]
+          fixed left-0 top-0 z-[60] flex h-full w-[260px] flex-col border-r border-white/10 bg-[#0f2d5e] text-sm text-slate-200 shadow-xl transition-transform duration-300 ease-in-out lg:w-[280px]
           ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
       >
-        <div className="shrink-0 border-b border-white/10 px-5 py-5">
-          <Link to="/" onClick={() => setIsOpen(false)} className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/25 text-white ring-1 ring-white/10">
-              <Scale size={20} />
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-lg font-black tracking-tight text-white">
-                Vakeel<span className="text-blue-300">Link</span>
-              </div>
-              <div className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-blue-300/80">
-                Client portal
-              </div>
-            </div>
-          </Link>
+        <div className="shrink-0 border-b border-white/10 px-5 py-4">
+          <BrandLogo
+            to="/"
+            subtitle="Client portal"
+            stacked
+            onNavigate={() => setIsOpen(false)}
+          />
         </div>
 
         <nav className="mt-3 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">

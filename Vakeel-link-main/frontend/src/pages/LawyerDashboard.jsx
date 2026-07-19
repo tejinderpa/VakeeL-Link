@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, CalendarDays, CalendarCheck2, CheckCircle2, CircleHelp, Clock3, Download, FileText, Filter, FolderOpen, Folder, LayoutDashboard, LineChart, LogOut, Mail, MessageCircle, Plus, Scale, Search, Settings, ShieldAlert, UserCircle2, Video, XCircle, Zap, Bot, X, Send, BookOpen, Loader2, Trash2, Upload, ChevronRight, ArrowLeft, Briefcase, Shield, Home } from 'lucide-react';
 import useAuth from '../components/useAuth';
+import BrandLogo from '../components/BrandLogo';
 import ConsultationChat from '../components/ConsultationChat';
 import { apiGet, apiPost, apiPut, hasRealToken } from '../utils/api';
 import {
@@ -86,19 +87,9 @@ function SideNav({
     .join('');
 
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-full w-[260px] flex-col border-r border-white/10 bg-[#0f2d5e] text-sm text-slate-200 shadow-xl lg:w-[280px]">
-      <div className="shrink-0 border-b border-white/10 px-5 py-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/25 text-white ring-1 ring-white/10">
-            <Scale size={20} />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-lg font-black tracking-tight text-white">
-              Vakeel<span className="text-blue-300">Link</span>
-            </div>
-            <div className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-blue-300/80">Advocate portal</div>
-          </div>
-        </div>
+    <aside className="fixed left-0 top-0 z-[60] flex h-full w-[260px] flex-col border-r border-white/10 bg-[#0f2d5e] text-sm text-slate-200 shadow-xl lg:w-[280px]">
+      <div className="shrink-0 border-b border-white/10 px-5 py-4">
+        <BrandLogo to="/dashboard/lawyer" subtitle="Advocate portal" stacked />
       </div>
 
       <nav className="mt-3 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">

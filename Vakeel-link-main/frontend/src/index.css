@@ -78,7 +78,7 @@ body {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
-/* ── Thin wire accent + slanted-line sweep (all pages) ───────────────────── */
+/* ── Thin wire accent + slanted-line sweep (content column only) ─────────── */
 .portal-wire-bar {
   position: relative;
   height: 3px;
@@ -86,6 +86,24 @@ body {
   overflow: hidden;
   background: linear-gradient(90deg, #0a2348 0%, #0f2d5e 40%, #1d4ed8 70%, #0f2d5e 100%);
   box-shadow: 0 1px 0 rgba(15, 45, 94, 0.25);
+}
+
+/* Sit only over main content — never on top of the fixed sidebar */
+.portal-wire-bar--content-only {
+  width: 100%;
+  margin-left: 0;
+}
+@media (min-width: 768px) {
+  .portal-wire-bar--content-only {
+    margin-left: 260px;
+    width: calc(100% - 260px);
+  }
+}
+@media (min-width: 1024px) {
+  .portal-wire-bar--content-only {
+    margin-left: 280px;
+    width: calc(100% - 280px);
+  }
 }
 
 .portal-wire-track {
