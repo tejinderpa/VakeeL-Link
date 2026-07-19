@@ -3,9 +3,8 @@ import { Link } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
 import './AuthBrandPanel.css';
 
-// Hero art from high-court advocate page (Lady Justice) + gavel panel for advocates
-const CLIENT_IMAGE = '/media/auth-high-court.jpg?v=2';
-const LAWYER_IMAGE = '/media/auth-lawyer-alt.jpg?v=2';
+// Same Lady Justice image for client + advocate login/signup left panel
+const AUTH_HERO_IMAGE = '/media/auth-high-court.jpg?v=3';
 const LOGO_SRC = '/advocate.jpg';
 
 const COPY = {
@@ -58,7 +57,8 @@ function preload(urls) {
  */
 export default function AuthBrandPanel({ role = 'client', mode = 'login' }) {
   const isLawyer = role === 'lawyer';
-  const targetSrc = isLawyer ? LAWYER_IMAGE : CLIENT_IMAGE;
+  // Always the same hero image (client + advocate login/signup)
+  const targetSrc = AUTH_HERO_IMAGE;
   const copy = COPY[isLawyer ? 'lawyer' : 'client'][mode === 'signup' ? 'signup' : 'login'];
 
   const [activeSrc, setActiveSrc] = useState(targetSrc);
@@ -68,7 +68,7 @@ export default function AuthBrandPanel({ role = 'client', mode = 'login' }) {
   const activeRef = useRef(targetSrc);
 
   useEffect(() => {
-    preload([CLIENT_IMAGE, LAWYER_IMAGE]);
+    preload([AUTH_HERO_IMAGE]);
   }, []);
 
   useEffect(() => {
@@ -129,11 +129,7 @@ export default function AuthBrandPanel({ role = 'client', mode = 'login' }) {
       <img
         className={`auth-brand-img auth-brand-img--active ${imgReady ? 'is-ready' : ''}`}
         src={activeSrc}
-        alt={
-          isLawyer
-            ? 'Gavel and scales — advocate portal'
-            : 'Lady Justice — high court advocate portal'
-        }
+        alt="Lady Justice — legal portal"
         draggable={false}
       />
       <div className="auth-brand-scrim" aria-hidden />
