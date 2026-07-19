@@ -165,6 +165,9 @@ export const DEMO_LAWYERS = [
 
 const CONSULT_SEED_FLAG = 'vakeellink_client_consult_seed_v1';
 const CONSULT_USER_KEY = 'vakeellink_client_consultations';
+/** Public lawyer cards published when an advocate saves their profile (client-visible). */
+const PUBLIC_LAWYERS_KEY = 'vakeellink_public_lawyer_profiles';
+const LAWYERS_EVENT = 'vakeellink-lawyers-updated';
 
 function readJson(key, fallback) {
   try {
@@ -182,6 +185,57 @@ function writeJson(key, value) {
 
 function uid(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function notifyLawyersUpdated() {
+  try {
+    window.dispatchEvent(new CustomEvent(LAWYERS_EVENT));
+  } catch {
+    // ignore
+  }
+}
+
+export function onLawyersCatalogUpdated(handler) {
+  window.addEventListener(LAWYERS_EVENT, handler);
+  window.addEventListener('storage', handler);
+  return () => {
+    window.removeEventListener(LAWYERS_EVENT, handler);
+    window.removeEventListener('storage', handler);
+  };
+}
+
+/**
+ * Publish advocate profile so client directory / profile pages show the update
+ * (same browser; survives offline). Merges into catalog by lawyer id.
+ */
+export function publishLawyerProfile(profile = {}) {
+  const id = String(profile.id || profile.user_id || '').trim();
+  if (!id) return null;
+  const map = readJson(PUBLIC_LAWYERS_KEY, {}) || {};
+  const prev = map[id] || {};
+  const card = normalizeLawyerCard({
+    ...prev,
+    ...profile,
+    id,
+    name: profile.name || profile.full_name || prev.name,
+    updatedAt: new Date().toISOString(),
+  });
+  map[id] = card;
+  writeJson(PUBLIC_LAWYERS_KEY, map);
+  notifyLawyersUpdated();
+  return card;
+}
+
+export function listPublishedLawyerProfiles() {
+  const map = readJson(PUBLIC_LAWYERS_KEY, {}) || {};
+  return Object.values(map).map((l) => normalizeLawyerCard(l));
+}
+
+export function getPublishedLawyerById(id) {
+  if (!id) return null;
+  const map = readJson(PUBLIC_LAWYERS_KEY, {}) || {};
+  const row = map[String(id)];
+  return row ? normalizeLawyerCard(row) : null;
 }
 
 /** Normalize API or demo lawyer for cards / profile */
@@ -220,8 +274,8 @@ export function normalizeLawyerCard(raw = {}) {
 }
 
 /**
- * Merge API lawyers with stable demo catalog.
- * Demo entries are never dropped; API/local logins override same id only.
+ * Merge API lawyers with stable demo catalog + published profile edits.
+ * Order: demos → API → published (lawyer portal saves win for that id).
  */
 export function mergeLawyersCatalog(apiLawyers = []) {
   const byId = new Map();
@@ -231,6 +285,22 @@ export function mergeLawyersCatalog(apiLawyers = []) {
     if (!l.id) return;
     byId.set(l.id, { ...byId.get(l.id), ...l, demo: false });
   });
+  // Lawyer-edited public profiles (client-visible immediately)
+  listPublishedLawyerProfiles().forEach((l) => {
+    if (!l?.id) return;
+    const prev = byId.get(l.id) || {};
+    byId.set(l.id, {
+      ...prev,
+      ...l,
+      demo: false,
+      // Keep ratings/reviews from prior if publish omitted them
+      rating: l.rating || prev.rating || 4.5,
+      review_count: l.review_count || prev.review_count || 0,
+      lawyer_reviews: (l.lawyer_reviews && l.lawyer_reviews.length
+        ? l.lawyer_reviews
+        : prev.lawyer_reviews) || [],
+    });
+  });
   return Array.from(byId.values()).sort((a, b) => {
     if (a.is_online !== b.is_online) return a.is_online ? -1 : 1;
     return (b.rating || 0) - (a.rating || 0);
@@ -238,6 +308,8 @@ export function mergeLawyersCatalog(apiLawyers = []) {
 }
 
 export function getDemoLawyerById(id) {
+  const published = getPublishedLawyerById(id);
+  if (published) return published;
   const found = DEMO_LAWYERS.find((l) => String(l.id) === String(id));
   return found ? normalizeLawyerCard({ ...found, demo: true }) : null;
 }

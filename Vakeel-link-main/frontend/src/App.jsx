@@ -19,6 +19,7 @@ import Profile from './pages/Profile';
 import NotFound from './pages/NotFound';
 import ScrollToTop from './components/ScrollToTop.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import PortalTopBar from './components/PortalTopBar.jsx';
 import './App.css';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -65,6 +66,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-[#faf8ff] text-slate-900 font-inter selection:bg-blue-200/60">
+      <PortalTopBar />
       <main className="flex-grow flex flex-col w-full">
         <Routes>
           <Route path="/" element={<LandingPage />} />

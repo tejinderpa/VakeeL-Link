@@ -17,7 +17,12 @@ import {
 import UserSidebar from '../components/UserSidebar';
 import useAuth from '../components/useAuth';
 import { apiGet, apiPost, hasRealToken } from '../utils/api';
-import { getDemoLawyerById, normalizeLawyerCard } from '../utils/clientCatalog';
+import {
+  getDemoLawyerById,
+  getPublishedLawyerById,
+  normalizeLawyerCard,
+  onLawyersCatalogUpdated,
+} from '../utils/clientCatalog';
 import { bookConsultationForLawyer } from '../utils/consultationBridge';
 
 export default function LawyerProfile() {
@@ -49,39 +54,48 @@ export default function LawyerProfile() {
   }, [toast]);
 
   useEffect(() => {
+    const applyCard = (card) => {
+      if (!card) return;
+      setLawyer({
+        ...card,
+        specialization: card.specializationLabel || card.specialization,
+        specializationRaw: card.specialization,
+      });
+      setDomain(card.specialization || 'general');
+    };
+
     const fetchProfile = async () => {
       setLoading(true);
       setError('');
-      // Instant demo catalog so "View profile" always shows content for demo ids
+      // 1) Published profile edits from lawyer portal (highest priority for live updates)
+      const published = getPublishedLawyerById(id);
+      // 2) Demo catalog for stable demo ids
       const demo = getDemoLawyerById(id);
-      if (demo) {
-        setLawyer({
-          ...demo,
-          specialization: demo.specializationLabel,
-          specializationRaw: demo.specialization,
-        });
-        setDomain(demo.specialization || 'general');
-      }
+      if (published) applyCard(published);
+      else if (demo) applyCard(demo);
+
       try {
         const data = await apiGet(`/api/v1/lawyers/${id}`, { auth: false });
         const card = normalizeLawyerCard(data);
-        setLawyer({
-          ...card,
-          specialization: card.specializationLabel,
-          specializationRaw: card.specialization,
-        });
-        setDomain(card.specialization || 'general');
+        // Published local edits still win over stale API
+        const final = published ? normalizeLawyerCard({ ...card, ...published }) : card;
+        applyCard(final);
       } catch (err) {
-        if (!demo) {
+        if (!published && !demo) {
           setError(err.message || 'Failed to load profile');
           setLawyer(null);
         }
-        // keep demo profile if API fails
       } finally {
         setLoading(false);
       }
     };
     fetchProfile();
+    // Re-apply when lawyer saves profile in another tab / same session
+    const unsub = onLawyersCatalogUpdated(() => {
+      const published = getPublishedLawyerById(id);
+      if (published) applyCard(published);
+    });
+    return unsub;
   }, [id]);
 
   const openBookModal = () => {

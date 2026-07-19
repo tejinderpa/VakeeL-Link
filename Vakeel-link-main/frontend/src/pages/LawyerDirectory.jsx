@@ -12,7 +12,7 @@ import {
   Scale,
 } from 'lucide-react';
 import UserSidebar from '../components/UserSidebar';
-import { mergeLawyersCatalog } from '../utils/clientCatalog';
+import { mergeLawyersCatalog, onLawyersCatalogUpdated } from '../utils/clientCatalog';
 import { API_BASE_URL } from '../utils/api';
 
 const DOMAIN_MAP = {
@@ -108,6 +108,7 @@ export default function LawyerDirectory() {
     } catch (error) {
       console.error(error);
     } finally {
+      // Includes published profile edits from lawyer portal (client-visible)
       let merged = mergeLawyersCatalog(apiRows);
       if (domainFilter) {
         const nd =
@@ -127,7 +128,11 @@ export default function LawyerDirectory() {
     const t = window.setTimeout(() => {
       fetchLawyers();
     }, 0);
-    return () => window.clearTimeout(t);
+    const unsub = onLawyersCatalogUpdated(() => fetchLawyers());
+    return () => {
+      window.clearTimeout(t);
+      unsub();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when domain filter changes
   }, [domainFilter]);
 

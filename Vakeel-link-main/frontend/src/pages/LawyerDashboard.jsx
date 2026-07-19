@@ -26,7 +26,21 @@ import {
   updateLocalConsultationStatus,
 } from '../utils/lawyerWorkspace';
 import { formatReadableText } from '../utils/chatStore';
-import { askLegalAi, buildComparisonPrompt, parseComparisonMemo } from '../utils/legalAi';
+import {
+  askLegalAi,
+  buildComparisonFollowUpPrompt,
+  buildComparisonPrompt,
+  gatherComparisonContexts,
+  parseComparisonMemo,
+} from '../utils/legalAi';
+import {
+  getCachedComparison,
+  listCachedComparisons,
+  rankSimilarMatters,
+  scoreMatterSimilarity,
+  setCachedComparison,
+} from '../utils/caseSimilarity';
+import { publishLawyerProfile } from '../utils/clientCatalog';
 import {
   countUnreadForLawyer,
   markConsultationRead,
@@ -204,18 +218,36 @@ function RejectedScreen({ reason, onReapply }) {
 }
 
 function NewCaseModal({ onClose, onGoToConsultations, onGoToCaseFiles, onSaved }) {
-  const [caseText, setCaseText] = useState('');
   const [title, setTitle] = useState('');
+  const [clientName, setClientName] = useState('');
   const [caseType, setCaseType] = useState('general');
+  const [incidentDate, setIncidentDate] = useState('');
+  const [nextHearing, setNextHearing] = useState('');
+  const [forum, setForum] = useState('');
+  const [peopleInvolved, setPeopleInvolved] = useState('');
+  const [opposingParty, setOpposingParty] = useState('');
+  const [witnesses, setWitnesses] = useState('');
+  const [reliefSought, setReliefSought] = useState('');
+  const [documentsAvailable, setDocumentsAvailable] = useState('');
+  const [priority, setPriority] = useState('normal');
+  const [caseText, setCaseText] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const selectedType = CASE_TYPES.find((t) => t.id === caseType) || CASE_TYPES[CASE_TYPES.length - 1];
   const previewParagraphs = formatReadableText(caseText);
 
+  const fieldClass =
+    'w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10';
+  const labelClass = 'mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500';
+
   const handleSave = () => {
     if (!title.trim() || !caseText.trim()) {
-      setError('Title and case description are required.');
+      setError('Title and case narrative are required.');
+      return;
+    }
+    if (!clientName.trim()) {
+      setError('Please name the client / principal party.');
       return;
     }
     setSaving(true);
@@ -224,10 +256,19 @@ function NewCaseModal({ onClose, onGoToConsultations, onGoToCaseFiles, onSaved }
       const categoryLabel = `${selectedType.label} Law`;
       const record = saveLawyerCase({
         title: title.trim(),
+        clientName: clientName.trim(),
         facts: caseText.trim(),
         category: categoryLabel,
-        clientName: title.trim(),
-        caseType: caseType,
+        caseType,
+        incidentDate,
+        nextHearing,
+        forum,
+        peopleInvolved,
+        opposingParty,
+        witnesses,
+        reliefSought,
+        documentsAvailable,
+        priority,
       });
       if (onSaved) onSaved(record);
       onClose();
@@ -240,32 +281,63 @@ function NewCaseModal({ onClose, onGoToConsultations, onGoToCaseFiles, onSaved }
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/50 p-0 backdrop-blur-sm sm:items-center sm:p-6">
-      <div className="flex max-h-[min(100dvh,900px)] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl">
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-white px-5 py-4 sm:px-6">
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/50 p-0 backdrop-blur-md sm:items-center sm:p-6">
+      <div
+        className="flex max-h-[min(100dvh,920px)] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="New case"
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-gradient-to-r from-[#0f2d5e] to-[#1e40af] px-5 py-4 text-white sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15 text-white">
               <Scale size={20} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900">New Case</h2>
-              <p className="text-xs text-slate-500">Issue type, title, and readable facts</p>
+              <h2 className="text-lg font-bold">New case file</h2>
+              <p className="text-xs text-blue-100">Dates, people, forum, and full narrative</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white">
             <X size={20} />
           </button>
         </div>
         <div className="flex-1 space-y-5 overflow-y-auto p-5 sm:p-6">
-          <div>
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">Case title / client</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Mehta — mutual consent divorce"
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-            />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className={labelClass}>Case title</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Mehta — mutual consent divorce & maintenance"
+                className={fieldClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Client / principal party *</label>
+              <input
+                type="text"
+                value={clientName}
+                onChange={(e) => setClientName(e.target.value)}
+                placeholder="Full name of your client"
+                className={fieldClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Priority</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className={fieldClass}
+              >
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High — urgent</option>
+                <option value="critical">Critical — time-sensitive</option>
+              </select>
+            </div>
           </div>
 
           <div>
@@ -276,7 +348,7 @@ function NewCaseModal({ onClose, onGoToConsultations, onGoToCaseFiles, onSaved }
                   key={t.id}
                   type="button"
                   onClick={() => setCaseType(t.id)}
-                  className={`rounded-xl border px-3 py-2.5 text-left transition-all ${
+                  className={`rounded-xl border px-3 py-2.5 text-left transition-all hover:shadow-sm ${
                     caseType === t.id
                       ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-500/20'
                       : 'border-slate-200 bg-white hover:border-slate-300'
@@ -289,19 +361,88 @@ function NewCaseModal({ onClose, onGoToConsultations, onGoToCaseFiles, onSaved }
             </div>
           </div>
 
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass}>Incident / cause of action date</label>
+              <input type="date" value={incidentDate} onChange={(e) => setIncidentDate(e.target.value)} className={fieldClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Next hearing / deadline</label>
+              <input type="date" value={nextHearing} onChange={(e) => setNextHearing(e.target.value)} className={fieldClass} />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass}>Court / forum / police station</label>
+              <input
+                type="text"
+                value={forum}
+                onChange={(e) => setForum(e.target.value)}
+                placeholder="e.g. Family Court, Saket · PS Connaught Place · Labour Court"
+                className={fieldClass}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass}>People involved</label>
+              <input
+                type="text"
+                value={peopleInvolved}
+                onChange={(e) => setPeopleInvolved(e.target.value)}
+                placeholder="Names & roles — e.g. Ananya Mehta (petitioner), Rohan Mehta (respondent), minor child A"
+                className={fieldClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Opposing party</label>
+              <input
+                type="text"
+                value={opposingParty}
+                onChange={(e) => setOpposingParty(e.target.value)}
+                placeholder="Name of opposite party / employer / builder"
+                className={fieldClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Witnesses / key contacts</label>
+              <input
+                type="text"
+                value={witnesses}
+                onChange={(e) => setWitnesses(e.target.value)}
+                placeholder="Witnesses, relatives, HR contact, etc."
+                className={fieldClass}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass}>Relief sought</label>
+              <input
+                type="text"
+                value={reliefSought}
+                onChange={(e) => setReliefSought(e.target.value)}
+                placeholder="e.g. Interim maintenance, mutual consent divorce, full & final settlement"
+                className={fieldClass}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass}>Documents available</label>
+              <input
+                type="text"
+                value={documentsAvailable}
+                onChange={(e) => setDocumentsAvailable(e.target.value)}
+                placeholder="e.g. Marriage certificate, salary slips, FIR copy, appointment letter"
+                className={fieldClass}
+              />
+            </div>
+          </div>
+
           <div>
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
-              Case description
-            </label>
+            <label className={labelClass}>Case narrative *</label>
             <p className="mb-2 text-xs text-slate-500">
-              Write in short paragraphs. Press Enter twice between points so it stays readable in Case Files.
+              What happened, what the client wants, and any prior proceedings. Short paragraphs work best.
             </p>
             <textarea
               value={caseText}
               onChange={(e) => setCaseText(e.target.value)}
-              rows={7}
-              placeholder={'What happened?\n\nWhat does the client want?\n\nAny dates, documents, or court already involved?'}
-              className="w-full resize-y rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium leading-relaxed text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+              rows={6}
+              placeholder={'What happened?\n\nWhat does the client want?\n\nPrior notices, FIRs, or court orders?'}
+              className={`${fieldClass} resize-y leading-relaxed`}
             />
           </div>
 
@@ -337,7 +478,7 @@ function NewCaseModal({ onClose, onGoToConsultations, onGoToCaseFiles, onSaved }
             </button>
             <button
               type="button"
-              disabled={saving || !title.trim() || !caseText.trim()}
+              disabled={saving || !title.trim() || !caseText.trim() || !clientName.trim()}
               onClick={handleSave}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50"
             >
@@ -360,19 +501,61 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
       category: c.category || 'General Law',
       caseType: c.caseType || null,
       status: c.status || 'pending',
-      facts: c.facts || '',
+      facts: c.facts || c.summary || c.message || '',
+      notes: c.notes || '',
+      message: c.message || '',
+      description: c.description || '',
+      forum: c.forum || '',
+      peopleInvolved: c.peopleInvolved || '',
+      opposingParty: c.opposingParty || '',
+      incidentDate: c.incidentDate || '',
+      nextHearing: c.nextHearing || '',
+      reliefSought: c.reliefSought || '',
       source: 'library',
+      factChars: String(c.facts || c.summary || c.message || '').length,
     }));
-    const fromConsults = (consultations || []).map((c) => ({
-      id: `consult_${c.id}`,
-      title: `${c.clientName || 'Client'} — consultation`,
-      clientName: c.clientName || 'Client',
-      category: c.category || 'General Law',
-      caseType: null,
-      status: c.status || 'pending',
-      facts: c.message || '',
-      source: 'consultation',
-    }));
+
+    // Dedupe consultations by id and by client+message fingerprint (avoids twin chips)
+    const seenIds = new Set();
+    const seenFp = new Set();
+    const fromConsults = [];
+    for (const c of consultations || []) {
+      const rawId = String(c.id ?? '');
+      if (!rawId || seenIds.has(rawId)) continue;
+      seenIds.add(rawId);
+      const client = String(c.clientName || 'Client').trim();
+      const body = String(c.message || c.clientMessage || '').trim();
+      const fp = `${client.toLowerCase()}|${body.slice(0, 160).toLowerCase()}`;
+      if (seenFp.has(fp)) continue;
+      seenFp.add(fp);
+
+      // Skip if an identical case file already covers this consultation text
+      const coveredByFile = fromFiles.some((f) => {
+        const sameClient = f.clientName.toLowerCase() === client.toLowerCase();
+        const overlap =
+          body &&
+          f.facts &&
+          (f.facts.includes(body.slice(0, 80)) || body.includes(f.facts.slice(0, 80)));
+        return sameClient && overlap;
+      });
+      if (coveredByFile) continue;
+
+      fromConsults.push({
+        id: `consult_${rawId}`,
+        title: `${client} — consultation`,
+        clientName: client,
+        category: c.category || 'General Law',
+        caseType: null,
+        status: c.status || 'pending',
+        facts: body,
+        message: body,
+        clientMessage: body,
+        notes: c.notes || '',
+        source: 'consultation',
+        factChars: body.length,
+      });
+    }
+
     return [...fromFiles, ...fromConsults];
   }, [localCases, consultations]);
 
@@ -382,14 +565,16 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
   const [ragItems, setRagItems] = useState([]);
   const [focus, setFocus] = useState('');
   const [running, setRunning] = useState(false);
+  const [runStep, setRunStep] = useState(0); // 0 idle, 1 gather, 2 draft, 3 polish
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
-  const [meta, setMeta] = useState(null); // provider / confidence
-  const [memo, setMemo] = useState(null); // parsed sections or raw
+  const [meta, setMeta] = useState(null);
+  const [memo, setMemo] = useState(null);
   const [rawMemo, setRawMemo] = useState('');
   const [followUp, setFollowUp] = useState('');
   const [followBusy, setFollowBusy] = useState(false);
   const [thread, setThread] = useState([]);
+  const [contextPreview, setContextPreview] = useState([]);
 
   const pool = useMemo(() => {
     const base = [
@@ -398,30 +583,73 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
         id: String(r.id),
         title: r.title,
         clientName: r.title,
-        category: r.category || 'RAG precedent',
+        category: r.category || 'Research finding',
         caseType: null,
         status: 'research',
         facts: r.summary || '',
         source: 'rag',
+        factChars: String(r.summary || '').length,
       })),
     ];
-    return base.filter((item) => {
-      if (sourceFilter === 'library' && item.source !== 'library' && item.source !== 'consultation') return false;
-      if (sourceFilter === 'rag' && item.source !== 'rag') return false;
-      if (!listQuery.trim()) return true;
-      const q = listQuery.toLowerCase();
-      return (
-        item.title.toLowerCase().includes(q) ||
-        (item.category || '').toLowerCase().includes(q) ||
-        (item.facts || '').toLowerCase().includes(q)
-      );
-    });
+    // Final id de-dupe in pool
+    const seen = new Set();
+    return base
+      .filter((item) => {
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        if (sourceFilter === 'library' && item.source !== 'library' && item.source !== 'consultation') return false;
+        if (sourceFilter === 'rag' && item.source !== 'rag') return false;
+        if (!listQuery.trim()) return true;
+        const q = listQuery.toLowerCase();
+        return (
+          item.title.toLowerCase().includes(q) ||
+          (item.clientName || '').toLowerCase().includes(q) ||
+          (item.category || '').toLowerCase().includes(q) ||
+          (item.facts || '').toLowerCase().includes(q)
+        );
+      });
   }, [libraryMatters, ragItems, sourceFilter, listQuery]);
 
-  const selectedMatters = useMemo(
-    () => selectedIds.map((id) => pool.find((p) => p.id === id) || libraryMatters.find((p) => p.id === id) || ragItems.find((r) => String(r.id) === id)).filter(Boolean),
-    [selectedIds, pool, libraryMatters, ragItems]
-  );
+  const selectedMatters = useMemo(() => {
+    return selectedIds
+      .map(
+        (id) =>
+          pool.find((p) => p.id === id) ||
+          libraryMatters.find((p) => p.id === id) ||
+          ragItems.find((r) => String(r.id) === id)
+      )
+      .filter(Boolean)
+      .map((m) =>
+        m.summary && !m.facts
+          ? { ...m, facts: m.summary }
+          : m
+      );
+  }, [selectedIds, pool, libraryMatters, ragItems]);
+
+  /** First selected matter is the "current case" for similarity ranking */
+  const anchorMatter = selectedMatters[0] || null;
+
+  const similarityById = useMemo(() => {
+    if (!anchorMatter) return {};
+    const map = {};
+    pool.forEach((m) => {
+      if (String(m.id) === String(anchorMatter.id)) {
+        map[m.id] = 100;
+        return;
+      }
+      map[m.id] = scoreMatterSimilarity(anchorMatter, m);
+    });
+    return map;
+  }, [anchorMatter, pool]);
+
+  const similarSuggestions = useMemo(() => {
+    if (!anchorMatter) return [];
+    return rankSimilarMatters(anchorMatter, pool, { minScore: 18, limit: 6 });
+  }, [anchorMatter, pool]);
+
+  const cachedHistory = useMemo(() => listCachedComparisons().slice(0, 5), [rawMemo, memo]);
+
+  const hasLargeMatter = selectedMatters.some((m) => (m.factChars || String(m.facts || '').length) > 1800);
 
   const toggleSelect = (id) => {
     setSelectedIds((prev) => {
@@ -434,26 +662,91 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
     });
   };
 
-  const runComparison = async () => {
+  const clearBench = () => {
+    setSelectedIds([]);
+    setMemo(null);
+    setRawMemo('');
+    setThread([]);
+    setMeta(null);
+    setError('');
+    setContextPreview([]);
+    setRunStep(0);
+  };
+
+  const loadCachedMemo = (entry) => {
+    if (!entry) return;
+    setRawMemo(entry.rawMemo || '');
+    setMemo(entry.memo || parseComparisonMemo(entry.rawMemo || ''));
+    setMeta(entry.meta || { fromCache: true });
+    setThread([]);
+    if (Array.isArray(entry.matterIds) && entry.matterIds.length) {
+      setSelectedIds(entry.matterIds.slice(0, 4));
+    }
+    if (entry.focus != null) setFocus(entry.focus);
+    if (onToast) onToast('Loaded cached comparison');
+  };
+
+  const runComparison = async ({ force = false } = {}) => {
     if (selectedMatters.length < 2) {
-      setError('Select at least two matters (or one matter + one RAG finding) to compare.');
+      setError('Pick at least two matters from the left (case files, consultations, or research findings).');
       return;
     }
+
+    // Reuse cached memo for same bench + focus unless force-refresh
+    if (!force) {
+      const cached = getCachedComparison(
+        selectedMatters.map((m) => m.id),
+        focus
+      );
+      if (cached?.rawMemo) {
+        setRawMemo(cached.rawMemo);
+        setMemo(cached.memo || parseComparisonMemo(cached.rawMemo));
+        setMeta({ ...(cached.meta || {}), fromCache: true });
+        setThread([]);
+        setError('');
+        if (onToast) onToast('Loaded from comparison cache');
+        return;
+      }
+    }
+
     setRunning(true);
+    setRunStep(1);
     setError('');
     setMemo(null);
     setRawMemo('');
+    setThread([]);
     try {
+      // Step 1 — gather / condense context (local, no API)
+      const prepared = gatherComparisonContexts(selectedMatters);
+      setContextPreview(prepared);
+      setRunStep(2);
+      await new Promise((r) => window.setTimeout(r, 180));
+
+      // Attach pairwise similarity to current (anchor) case in the prompt focus
+      const pairScores = selectedMatters.slice(1).map((m) => {
+        const s = scoreMatterSimilarity(selectedMatters[0], m);
+        return `${m.title}: ${s}% similar to current matter`;
+      });
+      const focusWithSim =
+        [focus.trim(), pairScores.length ? `Similarity to current case — ${pairScores.join('; ')}` : '']
+          .filter(Boolean)
+          .join('\n');
+
       const prompt = buildComparisonPrompt({
         cases: selectedMatters,
-        focus,
+        focus: focusWithSim,
         mode: 'full',
       });
       const data = await askLegalAi(prompt);
-      const text = data.analysis || data.answer || '';
-      setRawMemo(text);
-      setMemo(parseComparisonMemo(text));
-      setMeta({
+      setRunStep(3);
+      const text = String(data.analysis || data.answer || '').trim();
+      if (!text) {
+        throw new Error(
+          'No memo text was returned. Try again, or narrow the focus so the research step has a clearer target.'
+        );
+      }
+      const parsed = parseComparisonMemo(text);
+      const metaPayload = {
         provider: data.llm_provider,
         backend: data.retrieval_backend,
         confidence: data.confidence_score,
@@ -462,13 +755,26 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
         cited_sections: data.cited_sections || [],
         cited_acts: data.cited_acts || [],
         disclaimer: data.disclaimer,
+        condensedCount: prepared.filter((p) => p.condensed).length,
+        fromCache: false,
+        similarity: pairScores,
+      };
+      setRawMemo(text);
+      setMemo(parsed);
+      setMeta(metaPayload);
+      setCachedComparison({
+        matterIds: selectedMatters.map((m) => m.id),
+        focus,
+        rawMemo: text,
+        memo: parsed,
+        meta: metaPayload,
+        selectedTitles: selectedMatters.map((m) => m.title),
       });
-      // Surface strong citations as selectable RAG chips
       const extra = (data.cited_cases || []).slice(0, 6).map((title, i) => ({
         id: `rag_${Date.now()}_${i}`,
         title: typeof title === 'string' ? title : String(title),
-        summary: (data.summary || text).slice(0, 180),
-        category: data.domain || 'RAG',
+        summary: (data.summary || text).slice(0, 220),
+        category: data.domain || 'Research',
         source: 'rag',
       }));
       if (extra.length) {
@@ -477,18 +783,21 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
           return [...extra.filter((e) => !titles.has(e.title)), ...prev].slice(0, 24);
         });
       }
-      if (onToast) onToast('Comparison memo ready');
+      if (onToast) onToast('Comparison memo ready · cached for later');
     } catch (err) {
-      setError(err.message || 'Comparison failed. Check backend GROQ/Gemini keys.');
+      setError(err.message || 'Comparison could not be completed. Please try again.');
+      setMemo(null);
+      setRawMemo('');
     } finally {
       setRunning(false);
+      setRunStep(0);
     }
   };
 
   const runRagSearch = async () => {
     const q = listQuery.trim() || focus.trim();
     if (!q) {
-      setError('Enter a research phrase (e.g. “mutual consent divorce maintenance”) then search.');
+      setError('Type a research phrase first — for example “interim maintenance under HMA”.');
       return;
     }
     setSearching(true);
@@ -497,18 +806,19 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
       const prompt = buildComparisonPrompt({ focus: q, mode: 'search' });
       const data = await askLegalAi(prompt);
       const cited = data.cited_cases || [];
+      const analysis = data.analysis || data.answer || '';
       const items = (cited.length ? cited : [q]).slice(0, 8).map((title, i) => ({
         id: `rag_search_${Date.now()}_${i}`,
         title: typeof title === 'string' ? title : String(title),
-        summary: (data.analysis || data.answer || '').slice(0, 220),
-        category: data.domain || 'RAG',
+        summary: analysis.slice(0, 280),
+        category: data.domain || 'Research',
         source: 'rag',
       }));
       setRagItems((prev) => [...items, ...prev].slice(0, 30));
       setSourceFilter('all');
-      if (onToast) onToast(`Added ${items.length} research finding(s)`);
+      if (onToast) onToast(`Added ${items.length} research finding(s) to the library`);
     } catch (err) {
-      setError(err.message || 'RAG search failed');
+      setError(err.message || 'Research search failed');
     } finally {
       setSearching(false);
     }
@@ -522,19 +832,11 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
     setFollowUp('');
     setThread((prev) => [...prev, { role: 'user', text: question }]);
     try {
-      const prompt = [
-        'You are continuing a professional Indian legal case comparison memo for an advocate.',
-        'Use the prior memo and selected matters as context.',
-        '',
-        'SELECTED MATTERS:',
-        ...selectedMatters.map((c, i) => `${i + 1}. ${c.title} (${c.category}): ${(c.facts || '').slice(0, 400)}`),
-        '',
-        'PRIOR MEMO:',
-        rawMemo.slice(0, 4000),
-        '',
-        `Advocate question: ${question}`,
-        'Answer precisely, with statutes/sections where relevant.',
-      ].join('\n');
+      const prompt = buildComparisonFollowUpPrompt({
+        cases: selectedMatters,
+        priorMemo: rawMemo,
+        question,
+      });
       const data = await askLegalAi(prompt);
       setThread((prev) => [
         ...prev,
@@ -543,7 +845,7 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
     } catch (err) {
       setThread((prev) => [
         ...prev,
-        { role: 'ai', text: err.message || 'Follow-up failed — AI backend unavailable.' },
+        { role: 'ai', text: err.message || 'Follow-up could not be completed right now.' },
       ]);
     } finally {
       setFollowBusy(false);
@@ -551,73 +853,99 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
   };
 
   const sectionCards = [
-    { key: 'facts', label: 'Facts', tone: 'border-sky-200 bg-sky-50/60 text-sky-900' },
-    { key: 'issues', label: 'Legal issues', tone: 'border-amber-200 bg-amber-50/60 text-amber-950' },
-    { key: 'analysis', label: 'Comparative analysis', tone: 'border-blue-200 bg-blue-50/50 text-blue-950' },
-    { key: 'conclusion', label: 'Conclusion & next steps', tone: 'border-emerald-200 bg-emerald-50/50 text-emerald-950' },
+    { key: 'facts', label: 'Facts', hint: 'What each matter is about', tone: 'border-sky-200/80 bg-gradient-to-br from-sky-50 to-white text-sky-950' },
+    { key: 'issues', label: 'Legal issues', hint: 'Questions the court / forum will care about', tone: 'border-amber-200/80 bg-gradient-to-br from-amber-50 to-white text-amber-950' },
+    { key: 'analysis', label: 'Comparative analysis', hint: 'Where the matters align and diverge', tone: 'border-blue-200/80 bg-gradient-to-br from-blue-50 to-white text-blue-950' },
+    { key: 'conclusion', label: 'Conclusion & next steps', hint: 'What you can do this week', tone: 'border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-white text-emerald-950' },
+  ];
+
+  const runSteps = [
+    { id: 1, label: 'Gathering matter context' },
+    { id: 2, label: 'Comparing issues & law' },
+    { id: 3, label: 'Drafting structured memo' },
   ];
 
   return (
-    <section className="animate-in fade-in space-y-5 duration-500">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-blue-700">Advocate workspace</p>
-          <h2 className="mt-1 text-3xl font-semibold tracking-tight text-[#0f2d5e]">Case comparison memo</h2>
-          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
-            Select two or more matters from your Case Files (or pull RAG findings), set a focus, and generate a structured
-            comparison via the live legal AI pipeline (Groq / Gemini + retrieval).
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedIds([]);
-              setMemo(null);
-              setRawMemo('');
-              setThread([]);
-              setMeta(null);
-              setError('');
-            }}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Clear bench
-          </button>
-          <button
-            type="button"
-            disabled={running || selectedIds.length < 2}
-            onClick={runComparison}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#0f2d5e] px-5 py-2 text-sm font-bold text-white shadow-sm hover:bg-[#163a75] disabled:opacity-50"
-          >
-            {running ? <Loader2 size={16} className="animate-spin" /> : <Scale size={16} />}
-            {running ? 'Comparing…' : 'Run comparison'}
-          </button>
+    <section className="animate-in fade-in space-y-6 duration-500">
+      {/* Header */}
+      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="relative px-5 py-5 sm:px-7 sm:py-6">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(37,99,235,0.08),_transparent_55%)]" />
+          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-2xl">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">Your desk</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[#0f2d5e] sm:text-3xl">
+                Compare matters side by side
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                Choose two to four matters, add an optional focus, and get a clear memo you can use in strategy —
+                Facts, Issues, Analysis, and practical next steps. Large files are read first and condensed so the
+                comparison still answers properly.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={clearBench}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                Clear bench
+              </button>
+              <button
+                type="button"
+                disabled={running || selectedIds.length < 2}
+                onClick={() => runComparison({ force: false })}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#0f2d5e] px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-900/15 hover:bg-[#163a75] disabled:opacity-50"
+              >
+                {running ? <Loader2 size={16} className="animate-spin" /> : <Scale size={16} />}
+                {running ? 'Working…' : 'Run comparison'}
+              </button>
+              {rawMemo && (
+                <button
+                  type="button"
+                  disabled={running || selectedIds.length < 2}
+                  onClick={() => runComparison({ force: true })}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Refresh memo
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
       {error && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
+        <div className="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          <ShieldAlert size={18} className="mt-0.5 shrink-0 text-rose-600" />
+          <p className="leading-relaxed">{error}</p>
+        </div>
       )}
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
         {/* Left: matter picker */}
-        <div className="flex min-h-[560px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:col-span-5">
-          <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+        <div className="flex min-h-[580px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:col-span-5">
+          <div className="border-b border-slate-100 bg-slate-50/90 px-4 py-4">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-slate-900">Matter library</h3>
-              <span className="text-[11px] font-semibold text-slate-500">{selectedIds.length}/4 selected</span>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Your matters</h3>
+                <p className="mt-0.5 text-xs text-slate-500">Tap to place on the comparison bench</p>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                {selectedIds.length} of 4
+              </span>
             </div>
-            <div className="mb-3 grid grid-cols-3 gap-1 rounded-lg bg-slate-200/60 p-1">
+            <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-slate-200/50 p-1">
               {[
                 { id: 'all', label: 'All' },
                 { id: 'library', label: 'My cases' },
-                { id: 'rag', label: 'RAG' },
+                { id: 'rag', label: 'Research' },
               ].map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setSourceFilter(tab.id)}
-                  className={`rounded-md py-1.5 text-xs font-semibold transition-colors ${
+                  className={`rounded-lg py-1.5 text-xs font-semibold transition-colors ${
                     sourceFilter === tab.id ? 'bg-white text-[#0f2d5e] shadow-sm' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
@@ -637,18 +965,19 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
                       runRagSearch();
                     }
                   }}
-                  placeholder="Filter cases or research a precedent…"
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+                  placeholder="Search matters or research a point of law…"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
                 />
               </div>
               <button
                 type="button"
                 onClick={runRagSearch}
                 disabled={searching}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                title="Pull research findings into the list"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
                 {searching ? <Loader2 size={14} className="animate-spin" /> : <BookOpen size={14} />}
-                RAG
+                Find
               </button>
             </div>
           </div>
@@ -656,161 +985,368 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
           <div className="flex-1 space-y-2 overflow-y-auto p-3">
             {pool.length === 0 && (
               <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
-                No matters here yet. Open <strong>Case Files</strong> to create issues, or run a RAG search.
+                Nothing here yet. Create a matter under <strong>Case Files</strong>, accept a consultation, or search
+                research findings above.
+              </div>
+            )}
+            {anchorMatter && similarSuggestions.length > 0 && (
+              <div className="mb-3 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-blue-800">
+                  Similar to current case
+                </p>
+                <p className="mt-0.5 truncate text-xs font-medium text-slate-600">{anchorMatter.title}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {similarSuggestions.map(({ matter, similarity }) => (
+                    <button
+                      key={matter.id}
+                      type="button"
+                      onClick={() => toggleSelect(matter.id)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-blue-900 transition hover:bg-blue-50"
+                    >
+                      <span className="text-blue-600">{similarity}%</span>
+                      <span className="max-w-[120px] truncate">{matter.title}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {pool.map((item) => {
               const selected = selectedIds.includes(item.id);
+              const large = (item.factChars || String(item.facts || '').length) > 1800;
+              const sim = anchorMatter ? similarityById[item.id] : null;
+              const isAnchor = anchorMatter && String(item.id) === String(anchorMatter.id);
               return (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => toggleSelect(item.id)}
-                  className={`w-full rounded-xl border p-3.5 text-left transition-all ${
+                  className={`w-full rounded-xl border p-3.5 text-left transition-all hover:shadow-md ${
                     selected
-                      ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/15'
-                      : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                      ? 'border-blue-500 bg-blue-50/80 ring-2 ring-blue-500/15 shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-slate-900">{item.title}</p>
-                      <p className="mt-0.5 text-xs font-medium text-slate-500">{item.category}</p>
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {item.title}
+                        {isAnchor ? (
+                          <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-blue-600">
+                            Current
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {item.category}
+                        {item.clientName && item.clientName !== item.title ? ` · ${item.clientName}` : ''}
+                      </p>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                        item.source === 'rag'
-                          ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-                          : item.source === 'consultation'
-                            ? 'border border-violet-200 bg-violet-50 text-violet-700'
-                            : 'border border-blue-200 bg-blue-50 text-blue-700'
-                      }`}
-                    >
-                      {item.source === 'rag' ? 'RAG' : item.source === 'consultation' ? 'Consult' : 'File'}
-                    </span>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span
+                        className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                          item.source === 'rag'
+                            ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : item.source === 'consultation'
+                              ? 'border border-violet-200 bg-violet-50 text-violet-700'
+                              : 'border border-blue-200 bg-blue-50 text-blue-700'
+                        }`}
+                      >
+                        {item.source === 'rag' ? 'Research' : item.source === 'consultation' ? 'Consult' : 'File'}
+                      </span>
+                      {sim != null && !isAnchor && (
+                        <span
+                          className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+                            sim >= 45
+                              ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200'
+                              : sim >= 25
+                                ? 'bg-amber-50 text-amber-800 ring-1 ring-amber-200'
+                                : 'bg-slate-50 text-slate-500 ring-1 ring-slate-200'
+                          }`}
+                          title="Similarity to current (first selected) case"
+                        >
+                          {sim}% match
+                        </span>
+                      )}
+                      {large && (
+                        <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">
+                          Large
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-600">
-                    {formatReadableText(item.facts)[0] || 'No facts recorded.'}
+                    {formatReadableText(item.facts)[0] || 'No facts recorded yet — you can still compare titles and categories.'}
                   </p>
                   <div className="mt-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                    <span>{item.status}</span>
-                    <span className={selected ? 'text-blue-700' : ''}>{selected ? 'On bench' : 'Select'}</span>
+                    <span>
+                      {item.source === 'rag'
+                        ? 'Research'
+                        : statusLabel(normalizeStatus(item.status)) || item.status}
+                    </span>
+                    <span className={selected ? 'text-blue-700' : ''}>{selected ? 'On bench' : 'Add'}</span>
                   </div>
                 </button>
               );
             })}
+            {cachedHistory.length > 0 && (
+              <div className="mt-4 border-t border-slate-100 pt-3">
+                <p className="mb-2 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                  Cached comparisons
+                </p>
+                <div className="space-y-1.5">
+                  {cachedHistory.map((entry) => (
+                    <button
+                      key={entry.key}
+                      type="button"
+                      onClick={() => loadCachedMemo(entry)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs transition hover:border-blue-300 hover:bg-blue-50"
+                    >
+                      <p className="font-semibold text-slate-800 line-clamp-1">
+                        {(entry.selectedTitles || []).join(' · ') || 'Saved memo'}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-slate-500">
+                        {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : 'Earlier'}
+                        {entry.focus ? ` · ${entry.focus.slice(0, 40)}` : ''}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Right: comparison bench + memo */}
-        <div className="flex min-h-[560px] flex-col gap-4 xl:col-span-7">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-slate-900">Comparison bench</h3>
-              {meta?.provider && (
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
-                  {meta.provider}
-                  {meta.backend ? ` · ${meta.backend}` : ''}
-                </span>
-              )}
+        {/* Right: bench + memo */}
+        <div className="flex min-h-[580px] flex-col gap-4 xl:col-span-7">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Comparison bench</h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {selectedMatters.length < 2
+                    ? 'Add at least two matters to begin'
+                    : `${selectedMatters.length} matters ready${hasLargeMatter ? ' · large files will be condensed first' : ''}`}
+                </p>
+              </div>
             </div>
 
             {selectedMatters.length === 0 ? (
-              <p className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                Select at least two matters from the library to build a professional comparison memo.
-              </p>
-            ) : (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {selectedMatters.map((m, idx) => (
-                  <span
-                    key={m.id}
-                    className="inline-flex max-w-full items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-900"
-                  >
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-700 text-[10px] font-bold text-white">
-                      {idx + 1}
-                    </span>
-                    <span className="truncate">{m.title}</span>
-                    <button type="button" onClick={() => toggleSelect(m.id)} className="text-blue-700/70 hover:text-blue-900">
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
+              <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center">
+                <Scale className="mx-auto text-slate-300" size={28} />
+                <p className="mt-3 text-sm font-medium text-slate-600">Nothing on the bench yet</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Select matters from the left. Mix case files, consultations, or research findings as needed.
+                </p>
               </div>
+            ) : (
+              <ol className="mt-4 space-y-2">
+                {selectedMatters.map((m, idx) => {
+                  const chars = m.factChars || String(m.facts || '').length;
+                  const large = chars > 1800;
+                  return (
+                    <li
+                      key={m.id}
+                      className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5"
+                    >
+                      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#0f2d5e] text-[11px] font-bold text-white">
+                        {idx + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-900">{m.title}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {m.category}
+                          {large ? ` · ~${Math.round(chars / 100) * 100} characters of notes` : ''}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleSelect(m.id)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-700"
+                        aria-label={`Remove ${m.title}`}
+                      >
+                        <X size={14} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
             )}
 
-            <label className="mt-4 block text-[10px] font-bold uppercase tracking-wider text-slate-500">
-              Comparison focus (optional)
+            <label className="mt-5 block text-xs font-semibold text-slate-700">
+              What should we focus on? <span className="font-normal text-slate-400">(optional)</span>
             </label>
             <textarea
               value={focus}
               onChange={(e) => setFocus(e.target.value)}
-              rows={2}
-              placeholder="e.g. Compare interim maintenance strategy and evidence checklists under HMA vs. labour final settlement claims."
-              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm leading-relaxed outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/15"
+              rows={3}
+              placeholder="Example: Compare interim maintenance strategy and evidence checklists under HMA with final settlement claims in the labour matter."
+              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm leading-relaxed text-slate-800 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
             />
+
+            {selectedMatters.length >= 2 && (
+              <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                Match scores are vs your <strong>current</strong> matter (first on the bench). Results are cached for
+                the same set of matters and focus.
+              </p>
+            )}
 
             <button
               type="button"
               disabled={running || selectedMatters.length < 2}
-              onClick={runComparison}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-800 disabled:opacity-50"
+              onClick={() => runComparison({ force: false })}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 py-3.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {running ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  Generating memo with legal AI…
+                  {runStep === 1 ? 'Gathering context…' : runStep === 2 ? 'Comparing…' : 'Drafting memo…'}
                 </>
               ) : (
                 <>
-                  <Bot size={16} />
-                  Generate professional comparison memo
+                  <FileText size={16} />
+                  Generate comparison memo
                 </>
               )}
             </button>
           </div>
 
-          <div className="flex-1 rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+          <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5">
               <div className="flex items-center gap-2">
-                <FileText size={16} className="text-blue-700" />
-                <h3 className="text-sm font-bold text-slate-900">Memo output</h3>
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+                  <FileText size={15} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">Memo</h3>
+                  <p className="text-[11px] text-slate-500">Structured for courtroom and client prep</p>
+                </div>
               </div>
-              {meta?.confidence != null && meta.confidence > 0 && (
-                <span className="text-[11px] font-semibold text-slate-500">
-                  Confidence {(Number(meta.confidence) * (meta.confidence <= 1 ? 100 : 1)).toFixed(0)}%
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {meta?.fromCache && (
+                  <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-200">
+                    From cache
+                  </span>
+                )}
+                {meta?.confidence != null && meta.confidence > 0 && (
+                  <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
+                    Confidence {(Number(meta.confidence) * (meta.confidence <= 1 ? 100 : 1)).toFixed(0)}%
+                  </span>
+                )}
+              </div>
             </div>
 
-            <div className="max-h-[520px] space-y-4 overflow-y-auto p-5">
+            <div className="max-h-[540px] flex-1 space-y-4 overflow-y-auto p-5">
               {!memo && !running && (
-                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-                  Your structured memo (Facts · Issues · Analysis · Conclusion) will appear here after you run a comparison.
-                </div>
-              )}
-              {running && (
-                <div className="flex flex-col items-center justify-center gap-3 py-12 text-blue-700">
-                  <Loader2 size={28} className="animate-spin" />
-                  <p className="text-sm font-semibold">Retrieving context and drafting comparison…</p>
-                  <p className="text-xs text-slate-500">This uses the same Groq / Gemini pipeline as the AI Assistant.</p>
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-gradient-to-b from-slate-50 to-white px-5 py-12 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm ring-1 ring-slate-200">
+                    <BookOpen size={22} />
+                  </div>
+                  <p className="mt-4 text-sm font-semibold text-slate-700">Your memo will land here</p>
+                  <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-slate-500">
+                    Select matters, optionally set a focus, then generate. We gather context from each file first —
+                    including large ones — then draft Facts · Issues · Analysis · Conclusion.
+                  </p>
+                  <div className="mx-auto mt-5 grid max-w-md grid-cols-2 gap-2 text-left">
+                    {sectionCards.map((s) => (
+                      <div key={s.key} className="rounded-lg border border-slate-100 bg-white px-3 py-2">
+                        <p className="text-[11px] font-semibold text-slate-800">{s.label}</p>
+                        <p className="mt-0.5 text-[10px] text-slate-500">{s.hint}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
-              {memo && memo.analysis && !memo.facts && !memo.issues && (
-                <div className="prose prose-sm max-w-none whitespace-pre-wrap leading-relaxed text-slate-800">
-                  {memo.analysis}
+              {running && (
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/40 px-5 py-10">
+                  <div className="flex flex-col items-center text-center">
+                    <Loader2 size={28} className="animate-spin text-blue-700" />
+                    <p className="mt-4 text-sm font-semibold text-[#0f2d5e]">
+                      {runStep === 1
+                        ? 'Reading your matters and gathering context…'
+                        : runStep === 2
+                          ? 'Comparing issues, statutes, and strategy…'
+                          : 'Writing the memo…'}
+                    </p>
+                    <p className="mt-1 max-w-sm text-xs leading-relaxed text-slate-600">
+                      {hasLargeMatter
+                        ? 'One or more matters are large — key facts, legal signals, and closing posture are retained before drafting.'
+                        : 'Working only from the materials you selected on the bench.'}
+                    </p>
+                  </div>
+                  <ol className="mx-auto mt-6 max-w-xs space-y-2">
+                    {runSteps.map((step) => {
+                      const active = runStep === step.id;
+                      const done = runStep > step.id;
+                      return (
+                        <li
+                          key={step.id}
+                          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ${
+                            active
+                              ? 'bg-white text-blue-800 shadow-sm ring-1 ring-blue-100'
+                              : done
+                                ? 'text-emerald-700'
+                                : 'text-slate-400'
+                          }`}
+                        >
+                          {done ? (
+                            <CheckCircle2 size={14} className="text-emerald-600" />
+                          ) : active ? (
+                            <Loader2 size={14} className="animate-spin text-blue-600" />
+                          ) : (
+                            <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-slate-300 text-[9px]">
+                              {step.id}
+                            </span>
+                          )}
+                          {step.label}
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  {contextPreview.length > 0 && runStep >= 2 && (
+                    <p className="mt-5 text-center text-[11px] text-slate-500">
+                      Context ready for {contextPreview.length} matter
+                      {contextPreview.length === 1 ? '' : 's'}
+                      {contextPreview.some((c) => c.condensed)
+                        ? ` · ${contextPreview.filter((c) => c.condensed).length} condensed for length`
+                        : ''}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {memo && memo.analysis && !memo.facts && !memo.issues && !memo.conclusion && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Full memo</p>
+                  <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-800">
+                    {formatReadableText(memo.analysis).map((para, i) => (
+                      <p key={i} className="whitespace-pre-wrap">
+                        {para}
+                      </p>
+                    ))}
+                  </div>
                 </div>
               )}
 
               {memo && (memo.facts || memo.issues || memo.analysis || memo.conclusion) && (
                 <div className="space-y-3">
+                  {meta?.condensedCount > 0 && (
+                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900 ring-1 ring-amber-100">
+                      {meta.condensedCount} large matter{meta.condensedCount === 1 ? ' was' : 's were'} condensed before
+                      drafting. The memo reflects retained lead facts, legal signals, and closing posture — not every
+                      narrative sentence.
+                    </p>
+                  )}
                   {sectionCards.map((sec) => {
                     const body = memo[sec.key];
                     if (!body) return null;
                     return (
-                      <article key={sec.key} className={`rounded-xl border p-4 ${sec.tone}`}>
-                        <h4 className="text-[11px] font-black uppercase tracking-[0.18em] opacity-80">{sec.label}</h4>
-                        <div className="mt-2 space-y-2 text-sm leading-relaxed">
+                      <article key={sec.key} className={`rounded-xl border p-4 shadow-sm ${sec.tone}`}>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] opacity-80">{sec.label}</h4>
+                          <span className="hidden text-[10px] text-slate-500 sm:inline">{sec.hint}</span>
+                        </div>
+                        <div className="mt-2.5 space-y-2.5 text-sm leading-relaxed">
                           {formatReadableText(body).map((para, i) => (
                             <p key={i} className="whitespace-pre-wrap">
                               {para}
@@ -824,15 +1360,15 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
               )}
 
               {meta && (meta.cited_cases?.length > 0 || meta.cited_sections?.length > 0 || meta.cited_acts?.length > 0) && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Authorities referenced</p>
+                <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Authorities noted</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {[...(meta.cited_acts || []), ...(meta.cited_sections || []), ...(meta.cited_cases || [])]
                       .slice(0, 16)
                       .map((c) => (
                         <span
                           key={c}
-                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700"
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700"
                         >
                           {c}
                         </span>
@@ -845,15 +1381,15 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
               )}
 
               {thread.length > 0 && (
-                <div className="space-y-2 border-t border-slate-100 pt-4">
+                <div className="space-y-2.5 border-t border-slate-100 pt-4">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Follow-up</p>
                   {thread.map((msg, i) => (
                     <div
                       key={i}
-                      className={`rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                      className={`rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
                         msg.role === 'user'
-                          ? 'ml-6 bg-blue-700 text-white'
-                          : 'mr-6 border border-slate-200 bg-white text-slate-800'
+                          ? 'ml-8 bg-[#0f2d5e] text-white'
+                          : 'mr-6 border border-slate-200 bg-white text-slate-800 shadow-sm'
                       }`}
                     >
                       {msg.text}
@@ -863,18 +1399,23 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
               )}
             </div>
 
-            <form onSubmit={askFollowUp} className="flex gap-2 border-t border-slate-100 p-4">
+            <form onSubmit={askFollowUp} className="flex gap-2 border-t border-slate-100 bg-slate-50/50 p-4">
               <input
                 value={followUp}
                 onChange={(e) => setFollowUp(e.target.value)}
                 disabled={!rawMemo || followBusy}
-                placeholder={rawMemo ? 'Ask a follow-up on this memo…' : 'Run a comparison first to enable follow-ups'}
-                className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:bg-white disabled:opacity-60"
+                placeholder={
+                  rawMemo
+                    ? 'Ask a follow-up — e.g. “What documents should I collect first?”'
+                    : 'Generate a memo first, then ask follow-ups here'
+                }
+                className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-slate-50 disabled:opacity-60"
               />
               <button
                 type="submit"
                 disabled={!rawMemo || followBusy || !followUp.trim()}
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50"
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50"
+                aria-label="Send follow-up"
               >
                 {followBusy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               </button>
@@ -923,9 +1464,14 @@ function CaseFilesSection({
       type: c.category || 'General Law',
       status: statusLabel(rawStatus === 'draft' ? 'pending' : rawStatus),
       rawStatus: rawStatus === 'draft' ? 'pending' : rawStatus,
-      hearing: formatRelativeTime(c.createdAt),
+      hearing: c.nextHearing || formatRelativeTime(c.createdAt),
       progress,
       message: c.facts || '',
+      peopleInvolved: c.peopleInvolved || '',
+      forum: c.forum || '',
+      opposingParty: c.opposingParty || '',
+      incidentDate: c.incidentDate || '',
+      priority: c.priority || 'normal',
       source: 'draft',
       raw: c,
     };
@@ -983,6 +1529,15 @@ function CaseFilesSection({
               </div>
               <h3 className="mb-1 text-lg font-bold leading-snug text-slate-900 sm:text-xl">{c.client}</h3>
               <p className="mb-2 text-sm font-medium text-slate-500">{c.type}</p>
+              {(c.peopleInvolved || c.forum || c.incidentDate) && (
+                <p className="mb-2 text-[11px] leading-snug text-slate-500">
+                  {c.incidentDate ? `Date ${c.incidentDate}` : ''}
+                  {c.incidentDate && (c.forum || c.peopleInvolved) ? ' · ' : ''}
+                  {c.forum || ''}
+                  {c.forum && c.peopleInvolved ? ' · ' : ''}
+                  {c.peopleInvolved ? `Parties: ${c.peopleInvolved}` : ''}
+                </p>
+              )}
               <div className="mb-5 max-h-28 space-y-1.5 overflow-hidden">
                 {formatReadableText(c.message).slice(0, 3).map((para, idx) => (
                   <p key={idx} className="text-xs leading-relaxed text-slate-600 line-clamp-2">
@@ -1536,43 +2091,70 @@ function ProfileSection({ user, consultationStats = {}, onProfileSaved }) {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!hasRealToken()) {
-      setToast('Sign in with a real/offline account to save profile');
-      return;
-    }
     setSaving(true);
+    const languages = form.languages
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const areas_of_practice = form.areas_of_practice
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const payload = {
+      name: form.name.trim(),
+      bio: form.bio.trim(),
+      specialization: form.specialization.trim().toLowerCase().replace(/\s+/g, ' '),
+      location: form.location.trim(),
+      experience_years: Number(form.experience_years) || 0,
+      fee_per_consultation: Number(form.fee_per_consultation) || 0,
+      is_online: Boolean(form.is_online),
+      is_verified: Boolean(form.is_verified),
+      phone: form.phone.trim() || null,
+      languages,
+      areas_of_practice,
+      bar_council_id: form.bar_council_id || null,
+    };
+
+    // Always publish to client-visible catalog (same browser / offline)
+    const publicCard = {
+      id: user?.id || `local-lawyer-${(user?.email || 'advocate').replace(/[^a-z0-9]/gi, '-')}`,
+      ...payload,
+      specializationLabel: form.specialization.trim(),
+      email: form.email || user?.email,
+      gender: form.gender || null,
+    };
     try {
-      const payload = {
-        name: form.name.trim(),
-        bio: form.bio.trim(),
-        specialization: form.specialization.trim().toLowerCase().replace(/\s+/g, ' '),
-        location: form.location.trim(),
-        experience_years: Number(form.experience_years) || 0,
-        fee_per_consultation: Number(form.fee_per_consultation) || 0,
-        is_online: Boolean(form.is_online),
-        phone: form.phone.trim() || null,
-        languages: form.languages
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-        areas_of_practice: form.areas_of_practice
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean),
-      };
-      await apiPut('/api/v1/lawyers/me/profile', payload);
-      // Persist gender + name locally for sidebar / auth display
+      publishLawyerProfile(publicCard);
+    } catch {
+      // non-fatal
+    }
+
+    try {
+      if (hasRealToken()) {
+        await apiPut('/api/v1/lawyers/me/profile', payload);
+      }
       if (onProfileSaved) {
         onProfileSaved({
           name: form.name.trim(),
           full_name: form.name.trim(),
           gender: form.gender || null,
           specialization: form.specialization.trim(),
+          id: publicCard.id,
         });
       }
-      setToast('Profile saved — sidebar name updated');
+      setToast('Profile saved — visible on client Find Lawyers & profile pages');
     } catch (err) {
-      setToast(err.message || 'Failed to save profile');
+      // Local publish already done; still update sidebar
+      if (onProfileSaved) {
+        onProfileSaved({
+          name: form.name.trim(),
+          full_name: form.name.trim(),
+          gender: form.gender || null,
+          specialization: form.specialization.trim(),
+          id: publicCard.id,
+        });
+      }
+      setToast(err.message || 'Saved locally for clients; server sync failed');
     } finally {
       setSaving(false);
     }
@@ -1933,7 +2515,7 @@ export default function LawyerDashboard() {
     {
       id: 1,
       sender: 'ai',
-      text: `Hello ${displayName}. I am LexPrecise AI. Ask about strategy, statutes, or case framing — connect to live caseload via Consultations.`,
+      text: `Hello ${displayName}. Ask about strategy, statutes, or case framing — or open Consultations for live client matters.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
   ]);
@@ -2372,6 +2954,21 @@ export default function LawyerDashboard() {
       />
 
       <main className="min-h-screen min-w-0 pl-[260px] lg:pl-[280px]">
+        {/* Professional blue status strip */}
+        <div className="portal-top-strip flex h-9 items-center justify-between gap-3 bg-gradient-to-r from-[#0a2348] via-[#0f2d5e] to-[#1e3a8a] px-4 text-[11px] font-medium text-white sm:px-6">
+          <div className="flex min-w-0 items-center gap-2">
+            <Scale size={13} className="shrink-0 text-blue-200" />
+            <span className="truncate text-blue-50">
+              Advocate workspace · <span className="text-white/90">{displayName}</span>
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <span className="hidden text-blue-100/90 md:inline">Confidential counsel</span>
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ring-white/15">
+              {unreadCount > 0 ? `${unreadCount} new` : 'Live'}
+            </span>
+          </div>
+        </div>
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-slate-200/80 bg-white/95 px-4 shadow-sm backdrop-blur sm:h-16 sm:px-6">
           <div className="relative min-w-0 flex-1 max-w-md">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -2510,15 +3107,6 @@ export default function LawyerDashboard() {
                     >
                       Open consultations
                     </button>
-                  </div>
-                  <div className="group relative flex h-[240px] flex-col justify-end overflow-hidden rounded-xl bg-[#0f2d5e] p-6 text-white">
-                    <div className="absolute inset-0 bg-gradient-to-br from-[#0f2d5e] via-[#173d7a] to-[#0f2d5e] opacity-80" />
-                    <div className="absolute -right-8 -top-8 h-36 w-36 rounded-full bg-blue-400/20 blur-2xl" />
-                    <div className="relative z-10">
-                      <h4 className="mb-2 text-xl font-bold">LexPrecise AI Assistant</h4>
-                      <p className="mb-4 text-sm text-blue-200">Strategy help and case comparisons are available in your workspace.</p>
-                      <button type="button" onClick={() => setIsAIChatOpen(true)} className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-400">Try Now</button>
-                    </div>
                   </div>
                 </aside>
               </div>
@@ -2861,7 +3449,7 @@ export default function LawyerDashboard() {
                   <Bot size={18} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold">LexPrecise AI</h3>
+                  <h3 className="text-sm font-bold">VakeelLink AI</h3>
                   <p className="text-[10px] text-blue-200">Context: {displayName}</p>
                 </div>
               </div>
@@ -2931,20 +3519,59 @@ export default function LawyerDashboard() {
         )}
 
         {selectedCaseDetail && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-md">
             <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-xl font-bold text-[#0f2d5e]">{selectedCaseDetail.title || selectedCaseDetail.clientName}</h3>
                   <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    {selectedCaseDetail.category || 'General Law'} · Draft
+                    {selectedCaseDetail.category || 'General Law'}
+                    {selectedCaseDetail.clientName ? ` · ${selectedCaseDetail.clientName}` : ''}
                   </p>
                 </div>
                 <button type="button" onClick={() => setSelectedCaseDetail(null)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100">
                   <X size={18} />
                 </button>
               </div>
-              <div className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">
+              <dl className="mt-4 grid grid-cols-1 gap-2 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs sm:grid-cols-2">
+                {selectedCaseDetail.incidentDate && (
+                  <div>
+                    <dt className="font-bold uppercase tracking-wider text-slate-400">Incident date</dt>
+                    <dd className="mt-0.5 font-medium text-slate-800">{selectedCaseDetail.incidentDate}</dd>
+                  </div>
+                )}
+                {selectedCaseDetail.nextHearing && (
+                  <div>
+                    <dt className="font-bold uppercase tracking-wider text-slate-400">Next hearing</dt>
+                    <dd className="mt-0.5 font-medium text-slate-800">{selectedCaseDetail.nextHearing}</dd>
+                  </div>
+                )}
+                {selectedCaseDetail.forum && (
+                  <div className="sm:col-span-2">
+                    <dt className="font-bold uppercase tracking-wider text-slate-400">Forum</dt>
+                    <dd className="mt-0.5 font-medium text-slate-800">{selectedCaseDetail.forum}</dd>
+                  </div>
+                )}
+                {selectedCaseDetail.peopleInvolved && (
+                  <div className="sm:col-span-2">
+                    <dt className="font-bold uppercase tracking-wider text-slate-400">People involved</dt>
+                    <dd className="mt-0.5 font-medium text-slate-800">{selectedCaseDetail.peopleInvolved}</dd>
+                  </div>
+                )}
+                {selectedCaseDetail.opposingParty && (
+                  <div>
+                    <dt className="font-bold uppercase tracking-wider text-slate-400">Opposing party</dt>
+                    <dd className="mt-0.5 font-medium text-slate-800">{selectedCaseDetail.opposingParty}</dd>
+                  </div>
+                )}
+                {selectedCaseDetail.priority && (
+                  <div>
+                    <dt className="font-bold uppercase tracking-wider text-slate-400">Priority</dt>
+                    <dd className="mt-0.5 font-medium capitalize text-slate-800">{selectedCaseDetail.priority}</dd>
+                  </div>
+                )}
+              </dl>
+              <div className="mt-4 max-h-56 space-y-3 overflow-y-auto pr-1">
                 {formatReadableText(selectedCaseDetail.facts || selectedCaseDetail.message).map((para, i) => (
                   <p key={i} className="text-sm leading-relaxed text-slate-700">
                     {para}

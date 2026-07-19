@@ -175,19 +175,91 @@ export function listLawyerCases() {
 }
 
 /**
- * Create a new case at the top as pending. Never overwrites existing rows.
+ * Build a readable facts narrative from structured new-case fields.
  */
-export function saveLawyerCase({ title, facts, category = 'General Law', clientName, caseType }) {
+export function composeCaseFacts({
+  facts = '',
+  incidentDate = '',
+  nextHearing = '',
+  forum = '',
+  peopleInvolved = '',
+  opposingParty = '',
+  witnesses = '',
+  reliefSought = '',
+  documentsAvailable = '',
+  priority = '',
+} = {}) {
+  const blocks = [];
+  if (facts?.trim()) blocks.push(facts.trim());
+  const meta = [];
+  if (incidentDate) meta.push(`Matter / incident date: ${incidentDate}`);
+  if (nextHearing) meta.push(`Next hearing / deadline: ${nextHearing}`);
+  if (forum) meta.push(`Court / forum: ${forum}`);
+  if (peopleInvolved) meta.push(`People involved: ${peopleInvolved}`);
+  if (opposingParty) meta.push(`Opposing party: ${opposingParty}`);
+  if (witnesses) meta.push(`Witnesses / key contacts: ${witnesses}`);
+  if (reliefSought) meta.push(`Relief sought: ${reliefSought}`);
+  if (documentsAvailable) meta.push(`Documents available: ${documentsAvailable}`);
+  if (priority) meta.push(`Priority: ${priority}`);
+  if (meta.length) blocks.push(meta.join('\n'));
+  return blocks.join('\n\n').trim();
+}
+
+/**
+ * Create a new case at the top as pending. Never overwrites existing rows.
+ * Accepts structured matter fields for comparisons and case files.
+ */
+export function saveLawyerCase({
+  title,
+  facts,
+  category = 'General Law',
+  clientName,
+  caseType,
+  incidentDate = '',
+  nextHearing = '',
+  forum = '',
+  peopleInvolved = '',
+  opposingParty = '',
+  witnesses = '',
+  reliefSought = '',
+  documentsAvailable = '',
+  priority = 'normal',
+  notes = '',
+} = {}) {
   // Ensure store is initialised (may seed once)
   const existing = listLawyerCases();
   const now = new Date().toISOString();
+  const composed =
+    facts?.trim() ||
+    composeCaseFacts({
+      facts,
+      incidentDate,
+      nextHearing,
+      forum,
+      peopleInvolved,
+      opposingParty,
+      witnesses,
+      reliefSought,
+      documentsAvailable,
+      priority,
+    });
   const record = {
     id: uid('case'),
     title: (title || 'Untitled matter').trim(),
     clientName: (clientName || title || 'Client').trim(),
     category: (category || 'General Law').trim(),
     caseType: caseType || null,
-    facts: (facts || '').trim(),
+    facts: composed,
+    incidentDate: (incidentDate || '').trim() || null,
+    nextHearing: (nextHearing || '').trim() || null,
+    forum: (forum || '').trim() || null,
+    peopleInvolved: (peopleInvolved || '').trim() || null,
+    opposingParty: (opposingParty || '').trim() || null,
+    witnesses: (witnesses || '').trim() || null,
+    reliefSought: (reliefSought || '').trim() || null,
+    documentsAvailable: (documentsAvailable || '').trim() || null,
+    priority: (priority || 'normal').trim(),
+    notes: (notes || '').trim() || null,
     // New issues always start as pending and sit at the top of the queue
     status: 'pending',
     source: 'user',

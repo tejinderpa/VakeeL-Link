@@ -1,5 +1,5 @@
 /**
- * Shared legal AI client for RAG + LLM (Groq / Gemini via backend).
+ * Shared legal AI client for RAG + LLM (via backend).
  * Tries the same endpoint order as AIAssistant so lawyer tools keep working
  * even if the server mounts the router under slightly different prefixes.
  */
@@ -7,6 +7,10 @@
 import { API_BASE_URL, authHeaders } from './api';
 
 const AI_ENDPOINTS = ['/api/v1/query/ask', '/api/v1/query', '/api/query/ask', '/api/query'];
+
+/** Soft budget per matter so multi-case prompts stay usable for the model. */
+const DEFAULT_MAX_CHARS_PER_CASE = 4200;
+const HARD_MAX_CHARS_PER_CASE = 7000;
 
 function extractErrorDetail(body, statusText) {
   if (!body) return statusText || 'Request failed';
@@ -72,7 +76,7 @@ export async function askLegalAi(query, opts = {}) {
     }
   }
 
-  throw lastError || new Error('AI service unavailable. Check backend and GROQ/Gemini keys.');
+  throw lastError || new Error('Legal research service is unavailable right now. Please try again shortly.');
 }
 
 export function normalizeAiResponse(data = {}) {
@@ -80,9 +84,11 @@ export function normalizeAiResponse(data = {}) {
   const citedCases = Array.isArray(data.cited_cases)
     ? data.cited_cases
     : Array.isArray(data.citations)
-      ? data.citations.map((c) =>
-          typeof c === 'string' ? c : c.citation_text || c.title || c.case_name || ''
-        ).filter(Boolean)
+      ? data.citations
+          .map((c) =>
+            typeof c === 'string' ? c : c.citation_text || c.title || c.case_name || ''
+          )
+          .filter(Boolean)
       : [];
 
   return {
@@ -100,29 +106,191 @@ export function normalizeAiResponse(data = {}) {
     confidence_score: Number(data.confidence_score || 0),
     disclaimer:
       data.disclaimer ||
-      'This is AI-generated legal research assistance, not a substitute for professional advice.',
+      'This is AI-assisted legal research for advocate use — not a substitute for independent professional judgment.',
+  };
+}
+
+/** Lines that usually carry legal substance (keep these when condensing). */
+const LEGAL_SIGNAL =
+  /\b(section|sec\.|s\.|article|ipc|crpc|cpc|hma|hmga|ni act|negotiable|fir|bail|maintenance|custody|partition|injunction|limitation|jurisdiction|tribunal|court|order|notice|rs\.?|₹|lakh|crore|evidence|affidavit|petition|appeal|settlement|divorce|termination|gratuity|wages|cheque|defamation)\b/i;
+
+/**
+ * Collapse whitespace while keeping paragraph breaks.
+ */
+function normalizeFactsText(raw) {
+  return String(raw || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Intelligently condense a long fact narrative so large matters still
+ * contribute usable context instead of being cut mid-sentence.
+ */
+export function condenseLongText(text, maxChars = DEFAULT_MAX_CHARS_PER_CASE) {
+  const full = normalizeFactsText(text);
+  if (!full) return '';
+  if (full.length <= maxChars) return full;
+
+  const paragraphs = full.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const lines = full.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  const headBudget = Math.floor(maxChars * 0.42);
+  const tailBudget = Math.floor(maxChars * 0.22);
+  const midBudget = maxChars - headBudget - tailBudget - 80;
+
+  // Lead: first paragraphs until budget
+  let head = '';
+  for (const p of paragraphs) {
+    const next = head ? `${head}\n\n${p}` : p;
+    if (next.length > headBudget) break;
+    head = next;
+  }
+  if (!head) head = full.slice(0, headBudget);
+
+  // Middle: keep lines with legal / money / date signals
+  const signalLines = lines.filter((l) => LEGAL_SIGNAL.test(l) || /\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/.test(l));
+  let mid = '';
+  for (const l of signalLines) {
+    if (head.includes(l)) continue;
+    const next = mid ? `${mid}\n• ${l}` : `• ${l}`;
+    if (next.length > midBudget) break;
+    mid = next;
+  }
+
+  // Tail: last paragraph(s)
+  let tail = '';
+  for (let i = paragraphs.length - 1; i >= 0; i -= 1) {
+    const p = paragraphs[i];
+    if (head.includes(p) || (mid && mid.includes(p))) continue;
+    const next = tail ? `${p}\n\n${tail}` : p;
+    if (next.length > tailBudget) break;
+    tail = next;
+  }
+  if (!tail) tail = full.slice(-Math.min(tailBudget, full.length));
+
+  const omitted = full.length - head.length - (mid ? mid.length : 0) - tail.length;
+  const note =
+    omitted > 200
+      ? `\n\n[Context condensed for length — about ${Math.round(omitted / 100) * 100} characters of narrative trimmed; key lead facts, legal signals, and closing retained.]`
+      : '';
+
+  return [head, mid ? `Key points retained:\n${mid}` : '', tail ? `Closing / latest posture:\n${tail}` : '']
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, maxChars + note.length) + note;
+}
+
+/**
+ * Build a structured context pack for one matter (library file, consultation, or RAG hit).
+ * Large cases are condensed so the comparison model still receives substance.
+ *
+ * @param {object} matter
+ * @param {{ maxChars?: number }} [opts]
+ * @returns {{ title: string, category: string, status: string, clientName: string, source: string, facts: string, condensed: boolean, originalLength: number }}
+ */
+export function gatherMatterContext(matter = {}, opts = {}) {
+  const maxChars = Math.min(
+    Math.max(Number(opts.maxChars) || DEFAULT_MAX_CHARS_PER_CASE, 800),
+    HARD_MAX_CHARS_PER_CASE
+  );
+
+  const title = String(matter.title || matter.clientName || 'Untitled matter').trim();
+  const clientName = String(matter.clientName || matter.client || '').trim();
+  const category = String(matter.category || matter.caseType || 'General').trim();
+  const status = String(matter.status || 'n/a').trim();
+  const source = String(matter.source || 'file').trim();
+
+  const rawParts = [
+    matter.facts,
+    matter.summary,
+    matter.message,
+    matter.clientMessage,
+    matter.notes,
+    matter.description,
+  ]
+    .map((p) => normalizeFactsText(p))
+    .filter(Boolean);
+
+  // De-dupe near-identical blobs
+  const unique = [];
+  const seen = new Set();
+  for (const part of rawParts) {
+    const key = part.slice(0, 160).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(part);
+  }
+
+  const merged = unique.join('\n\n') || 'No written facts recorded for this matter yet.';
+  const originalLength = merged.length;
+  const condensed = originalLength > maxChars;
+  const facts = condensed ? condenseLongText(merged, maxChars) : merged;
+
+  return {
+    title,
+    clientName: clientName || title,
+    category,
+    status,
+    source,
+    caseType: matter.caseType || null,
+    facts,
+    condensed,
+    originalLength,
+    id: matter.id,
   };
 }
 
 /**
+ * Prepare several matters for comparison (balanced budgets when many are large).
+ */
+export function gatherComparisonContexts(cases = [], opts = {}) {
+  const list = Array.isArray(cases) ? cases.filter(Boolean) : [];
+  if (!list.length) return [];
+
+  // Share budget across matters so 3–4 large files still fit
+  const perCase =
+    list.length >= 4
+      ? 2800
+      : list.length === 3
+        ? 3400
+        : DEFAULT_MAX_CHARS_PER_CASE;
+
+  return list.map((c) => gatherMatterContext(c, { maxChars: opts.maxChars || perCase }));
+}
+
+/**
  * Build a structured comparison prompt from two or more matters + optional focus.
+ * Always runs context gathering so large matters contribute usable substance.
  */
 export function buildComparisonPrompt({ cases = [], focus = '', mode = 'full' } = {}) {
-  const blocks = (cases || []).map((c, i) => {
-    const label = `CASE ${i + 1}`;
+  const prepared = gatherComparisonContexts(cases);
+
+  const blocks = prepared.map((c, i) => {
+    const label = `MATTER ${i + 1}`;
+    const sizeNote =
+      c.condensed && c.originalLength
+        ? ` (large file — ${c.originalLength.toLocaleString()} chars gathered & condensed for analysis)`
+        : '';
     return [
-      `${label}`,
-      `Title: ${c.title || c.clientName || 'Untitled'}`,
-      `Category / issue type: ${c.category || c.caseType || 'General'}`,
-      `Status: ${c.status || 'n/a'}`,
-      `Facts / issues:`,
-      String(c.facts || c.summary || c.message || 'No facts recorded.').trim(),
-    ].join('\n');
+      `${label}${sizeNote}`,
+      `Title: ${c.title}`,
+      c.clientName && c.clientName !== c.title ? `Client: ${c.clientName}` : null,
+      `Category / issue type: ${c.category}`,
+      `Status: ${c.status}`,
+      `Source: ${c.source}`,
+      `Facts / issues / pleadings material:`,
+      c.facts,
+    ]
+      .filter(Boolean)
+      .join('\n');
   });
 
   const focusLine = focus.trim()
     ? `Advocate focus for this comparison: ${focus.trim()}`
-    : 'Advocate focus: identify the strongest arguments, risks, and procedural next steps.';
+    : 'Advocate focus: identify the strongest arguments, material risks, evidence gaps, and practical next steps.';
 
   if (mode === 'search') {
     return [
@@ -133,32 +301,84 @@ export function buildComparisonPrompt({ cases = [], focus = '', mode = 'full' } 
       focus || blocks.join('\n\n'),
       '',
       'Return a clear analysis under Indian law. Prefer statutes, sections, and leading cases.',
-      'List cited_cases and cited_sections when possible.',
+      'List cited cases and sections when possible. Do not invent holdings.',
     ].join('\n');
   }
 
+  const largeNote = prepared.some((c) => c.condensed)
+    ? [
+        'Note on large matters: some fact narratives were condensed before this prompt.',
+        'Work only from the context provided. If a detail is missing after condensation, state the gap briefly and still answer using what remains — do not invent facts.',
+        '',
+      ].join('\n')
+    : '';
+
   return [
-    'You are a senior Indian litigation counsel preparing a PROFESSIONAL CASE COMPARISON MEMO.',
-    'Compare the matters below carefully. Do NOT invent court holdings that are not supported by the facts given or by well-known Indian statutory framework.',
+    'You are a senior Indian litigation counsel preparing a PROFESSIONAL CASE COMPARISON MEMO for a practising advocate.',
+    'Compare the matters carefully. Ground every point in the provided context or well-known Indian statutory framework.',
+    'Do NOT invent court holdings, party admissions, or documents that are not supported by the materials below.',
     '',
     focusLine,
     '',
-    blocks.join('\n\n---\n\n'),
+    largeNote,
+    '════════ MATTERS ON THE BENCH ════════',
+    blocks.join('\n\n────────\n\n'),
     '',
-    'Structure your answer EXACTLY with these headings:',
+    'Structure your answer EXACTLY with these headings (use the labels as shown):',
+    '',
     'Facts:',
-    '(neutral synthesis of each matter in short bullets)',
+    '- Neutral synthesis of each matter (short bullets, label Matter 1 / Matter 2…)',
+    '- Call out overlapping vs distinct factual themes',
     '',
     'Issues:',
-    '(legal issues / questions of law common and distinct)',
+    '- Legal issues / questions of law that are common',
+    '- Issues unique to each matter',
     '',
     'Analysis:',
-    '(side-by-side comparison: similarities, differences, applicable statutes/sections, precedents if known, evidentiary strengths/weaknesses, forum/jurisdiction notes)',
+    '- Side-by-side comparison: similarities and differences',
+    '- Applicable statutes / sections under Indian law',
+    '- Precedents only if well-known or clearly implied by the materials',
+    '- Evidentiary strengths and weaknesses',
+    '- Forum / jurisdiction notes where relevant',
     '',
     'Conclusion:',
-    '(recommended strategy, settlement vs litigation posture, and concrete next steps for the advocate)',
+    '- Recommended strategy (settlement vs contested posture where apt)',
+    '- Concrete next steps and document checklist for the advocate',
     '',
-    'Be precise, professional, and practical. Use plain professional English suitable for an advocate\'s brief.',
+    'Write in clear professional English suitable for an advocate brief. Prefer practical guidance over theory.',
+    'If context for a matter is thin, say so under Facts and still produce the best comparative analysis possible from what you have.',
+  ].join('\n');
+}
+
+/**
+ * Build a follow-up prompt that re-attaches gathered matter context + prior memo.
+ */
+export function buildComparisonFollowUpPrompt({
+  cases = [],
+  priorMemo = '',
+  question = '',
+} = {}) {
+  const prepared = gatherComparisonContexts(cases);
+  const matterBrief = prepared
+    .map(
+      (c, i) =>
+        `${i + 1}. ${c.title} (${c.category}) — ${condenseLongText(c.facts, 900)}`
+    )
+    .join('\n\n');
+
+  return [
+    'You are continuing a professional Indian legal case comparison memo for an advocate.',
+    'Use the prior memo and the matter context below. Do not invent facts.',
+    '',
+    'SELECTED MATTERS (gathered context):',
+    matterBrief || '(none)',
+    '',
+    'PRIOR MEMO:',
+    condenseLongText(priorMemo, 6000) || '(empty)',
+    '',
+    `Advocate question: ${String(question || '').trim()}`,
+    '',
+    'Answer precisely. Prefer statutes/sections where relevant. If the memo or context is insufficient, say what is missing and give the best answer from what remains.',
   ].join('\n');
 }
 

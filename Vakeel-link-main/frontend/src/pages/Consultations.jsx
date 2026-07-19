@@ -26,6 +26,10 @@ import {
   mergeClientConsultations,
   updateClientConsultationStatus,
 } from '../utils/clientCatalog';
+import {
+  onConsultationsUpdated,
+  syncConsultationStatusBothWays,
+} from '../utils/consultationBridge';
 
 export default function Consultations() {
   const [consultations, setConsultations] = useState([]);
@@ -40,8 +44,9 @@ export default function Consultations() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const loadConsultations = useCallback(async () => {
-    setLoading(true);
+  const loadConsultations = useCallback(async (opts = {}) => {
+    const silent = Boolean(opts.silent);
+    if (!silent) setLoading(true);
     // Always start with local demos so the page is never empty
     let apiRows = [];
     try {
@@ -50,18 +55,28 @@ export default function Consultations() {
         apiRows = payload?.data || [];
       }
     } catch (err) {
-      setToast(err.message || 'Live consultations unavailable — showing demo bookings');
+      if (!silent) setToast(err.message || 'Live consultations unavailable — showing demo bookings');
     } finally {
       const merged = mergeClientConsultations(apiRows).map(mapConsultationForClient);
       // If still empty, force seed read
       setConsultations(merged.length ? merged : listClientConsultations().map(mapConsultationForClient));
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     const t = window.setTimeout(() => loadConsultations(), 0);
     return () => window.clearTimeout(t);
+  }, [loadConsultations]);
+
+  // Live updates when lawyer accepts / completes (shared store + multi-tab)
+  useEffect(() => {
+    const unsub = onConsultationsUpdated(() => loadConsultations({ silent: true }));
+    const poll = window.setInterval(() => loadConsultations({ silent: true }), 20000);
+    return () => {
+      unsub();
+      window.clearInterval(poll);
+    };
   }, [loadConsultations]);
 
   const upcoming = useMemo(
@@ -97,15 +112,17 @@ export default function Consultations() {
     try {
       if (!String(cons.id).startsWith('demo-') && hasRealToken()) {
         await apiPost(`/api/v1/consultations/${cons.id}/cancel`);
-      } else {
-        updateClientConsultationStatus(cons.id, 'cancelled');
       }
+      // Always sync shared inbox so lawyer portal sees cancel immediately
+      syncConsultationStatusBothWays(cons.id, 'cancelled');
+      updateClientConsultationStatus(cons.id, 'cancelled');
       setToast('Consultation cancelled');
-      await loadConsultations();
+      await loadConsultations({ silent: true });
     } catch {
+      syncConsultationStatusBothWays(cons.id, 'cancelled');
       updateClientConsultationStatus(cons.id, 'cancelled');
       setToast('Consultation cancelled (offline)');
-      await loadConsultations();
+      await loadConsultations({ silent: true });
     } finally {
       setActionId(null);
     }
@@ -116,15 +133,16 @@ export default function Consultations() {
     try {
       if (!String(cons.id).startsWith('demo-') && hasRealToken()) {
         await apiPost(`/api/v1/consultations/${cons.id}/complete`);
-      } else {
-        updateClientConsultationStatus(cons.id, 'completed');
       }
+      syncConsultationStatusBothWays(cons.id, 'completed');
+      updateClientConsultationStatus(cons.id, 'completed');
       setToast('Marked completed');
-      await loadConsultations();
+      await loadConsultations({ silent: true });
     } catch {
+      syncConsultationStatusBothWays(cons.id, 'completed');
       updateClientConsultationStatus(cons.id, 'completed');
       setToast('Marked completed (offline)');
-      await loadConsultations();
+      await loadConsultations({ silent: true });
     } finally {
       setActionId(null);
     }
@@ -137,7 +155,7 @@ export default function Consultations() {
     return (
       <div
         key={cons.id}
-        className="flex flex-col gap-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm md:flex-row md:items-center"
+        className="flex flex-col gap-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md md:flex-row md:items-center"
       >
         <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
           {cons.type === 'Video Call' ? (

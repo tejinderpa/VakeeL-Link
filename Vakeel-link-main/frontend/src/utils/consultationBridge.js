@@ -4,7 +4,7 @@
  */
 
 import { upsertLocalConsultation, updateLocalConsultationStatus as updateLocalStatus } from './lawyerWorkspace';
-import { appendClientConsultation } from './clientCatalog';
+import { appendClientConsultation, updateClientConsultationStatus } from './clientCatalog';
 import { DEMO_LAWYERS } from './clientCatalog';
 
 const SHARED_KEY = 'vakeellink_shared_consultations';
@@ -228,8 +228,21 @@ export function updateSharedConsultationStatus(id, status) {
   } catch {
     // ignore
   }
+  // Keep client "My Consultations" in sync when lawyer accepts / completes / declines
+  try {
+    updateClientConsultationStatus(id, status);
+  } catch {
+    // ignore
+  }
   markConsultationRead(id);
   return shared[idx] || null;
+}
+
+/**
+ * Client cancels or completes — update shared inbox so the lawyer portal sees it.
+ */
+export function syncConsultationStatusBothWays(id, status) {
+  return updateSharedConsultationStatus(id, status);
 }
 
 /**

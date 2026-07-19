@@ -78,3 +78,51 @@ body {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
+/* ── Professional interaction polish (portal-wide) ───────────────────────── */
+.portal-top-strip {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hover-lift {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px -14px rgba(15, 45, 94, 0.22);
+}
+
+.hover-glow {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.15s ease;
+}
+.hover-glow:hover {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+/* Soft lift on common white cards across client + lawyer pages */
+main .rounded-xl.border.border-slate-200.bg-white,
+main .rounded-2xl.border.border-slate-200.bg-white {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+main .rounded-xl.border.border-slate-200.bg-white:hover,
+main .rounded-2xl.border.border-slate-200.bg-white:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 12px 24px -16px rgba(15, 45, 94, 0.18);
+}
+
+/* Buttons feel more tactile */
+button:not(:disabled),
+a[class*='rounded'] {
+  transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease,
+    border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+button:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* Nav links in sidebars */
+aside a,
+aside button {
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+

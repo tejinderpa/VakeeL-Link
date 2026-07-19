@@ -56,7 +56,7 @@ const UserSidebar = () => {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed left-4 top-4 z-[60] rounded-xl bg-[#0f2d5e] p-2.5 text-white shadow-md md:hidden"
+        className="fixed left-4 top-12 z-[60] rounded-xl bg-[#0f2d5e] p-2.5 text-white shadow-md transition hover:bg-[#163a75] md:hidden"
         aria-label="Toggle menu"
       >
         {isOpen ? <X size={20} /> : <Menu size={20} />}
