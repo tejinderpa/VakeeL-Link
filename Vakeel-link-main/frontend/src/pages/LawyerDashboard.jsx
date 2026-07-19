@@ -494,6 +494,34 @@ function NewCaseModal({ onClose, onGoToConsultations, onGoToCaseFiles, onSaved }
   );
 }
 
+/** Same analysis section chrome as AI Assistant — keep advocate memo consistent */
+const ANALYSIS_SECTION_META = {
+  facts: {
+    label: 'Facts',
+    color: 'text-sky-700',
+    border: 'border-sky-200',
+    bg: 'bg-sky-50',
+  },
+  issues: {
+    label: 'Legal Issues',
+    color: 'text-amber-700',
+    border: 'border-amber-200',
+    bg: 'bg-amber-50',
+  },
+  analysis: {
+    label: 'Analysis',
+    color: 'text-blue-700',
+    border: 'border-blue-200',
+    bg: 'bg-blue-50',
+  },
+  conclusion: {
+    label: 'Conclusion',
+    color: 'text-emerald-700',
+    border: 'border-emerald-200',
+    bg: 'bg-emerald-50',
+  },
+};
+
 function CaseComparisonsSection({ localCases = [], consultations = [], onToast }) {
   const libraryMatters = useMemo(() => {
     const fromFiles = (localCases || []).map((c) => ({
@@ -577,6 +605,7 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
   const [followBusy, setFollowBusy] = useState(false);
   const [thread, setThread] = useState([]);
   const [contextPreview, setContextPreview] = useState([]);
+  const [memoTab, setMemoTab] = useState('structured'); // structured | full — same as AI analysis workspace
 
   const pool = useMemo(() => {
     const base = [
@@ -681,6 +710,7 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
     setRawMemo(raw);
     // Re-parse so older cached dict dumps become readable prose
     setMemo(parseComparisonMemo(raw) || entry.memo);
+    setMemoTab('structured');
     setMeta(entry.meta || { fromCache: true });
     setThread([]);
     if (Array.isArray(entry.matterIds) && entry.matterIds.length) {
@@ -766,6 +796,7 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
       };
       setRawMemo(text);
       setMemo(parsed);
+      setMemoTab('structured');
       setMeta(metaPayload);
       setCachedComparison({
         matterIds: selectedMatters.map((m) => m.id),
@@ -857,12 +888,9 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
     }
   };
 
-  const sectionCards = [
-    { key: 'facts', label: 'Facts', hint: 'What each matter is about', tone: 'border-sky-200/80 bg-gradient-to-br from-sky-50 to-white text-sky-950' },
-    { key: 'issues', label: 'Legal issues', hint: 'Questions the court / forum will care about', tone: 'border-amber-200/80 bg-gradient-to-br from-amber-50 to-white text-amber-950' },
-    { key: 'analysis', label: 'Comparative analysis', hint: 'Where the matters align and diverge', tone: 'border-blue-200/80 bg-gradient-to-br from-blue-50 to-white text-blue-950' },
-    { key: 'conclusion', label: 'Conclusion & next steps', hint: 'What you can do this week', tone: 'border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-white text-emerald-950' },
-  ];
+  const hasStructuredSections = Boolean(
+    memo && (memo.facts || memo.issues || memo.analysis || memo.conclusion)
+  );
 
   const runSteps = [
     { id: 1, label: 'Gathering matter context' },
@@ -870,53 +898,54 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
     { id: 3, label: 'Drafting structured memo' },
   ];
 
+  const confidencePct =
+    meta?.confidence != null && meta.confidence > 0
+      ? (Number(meta.confidence) * (meta.confidence <= 1 ? 100 : 1)).toFixed(0)
+      : null;
+
   return (
     <section className="animate-in fade-in space-y-6 duration-500">
-      {/* Header */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="relative px-5 py-5 sm:px-7 sm:py-6">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(37,99,235,0.08),_transparent_55%)]" />
-          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">Your desk</p>
-              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[#0f2d5e] sm:text-3xl">
-                Compare matters side by side
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                Choose two to four matters, add an optional focus, and get a clear memo you can use in strategy —
-                Facts, Issues, Analysis, and practical next steps. Large files are read first and condensed so the
-                comparison still answers properly.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={clearBench}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-              >
-                Clear bench
-              </button>
-              <button
-                type="button"
-                disabled={running || selectedIds.length < 2}
-                onClick={() => runComparison({ force: false })}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#0f2d5e] px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-900/15 hover:bg-[#163a75] disabled:opacity-50"
-              >
-                {running ? <Loader2 size={16} className="animate-spin" /> : <Scale size={16} />}
-                {running ? 'Working…' : 'Run comparison'}
-              </button>
-              {rawMemo && (
-                <button
-                  type="button"
-                  disabled={running || selectedIds.length < 2}
-                  onClick={() => runComparison({ force: true })}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-                >
-                  Refresh memo
-                </button>
-              )}
-            </div>
-          </div>
+      {/* Header — aligned with AI Assistant analysis tone */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="max-w-2xl">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">
+            Analysis workspace
+          </p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[#0f2d5e] sm:text-3xl">
+            Case comparisons
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">
+            Select two or more matters, optionally set a focus, and generate the same structured legal memo
+            used in analysis — Facts, Legal Issues, Analysis, and Conclusion.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={clearBench}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            Clear bench
+          </button>
+          <button
+            type="button"
+            disabled={running || selectedIds.length < 2}
+            onClick={() => runComparison({ force: false })}
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:opacity-50"
+          >
+            {running ? <Loader2 size={16} className="animate-spin" /> : <Scale size={16} />}
+            {running ? 'Analysing…' : 'Generate analysis'}
+          </button>
+          {rawMemo && (
+            <button
+              type="button"
+              disabled={running || selectedIds.length < 2}
+              onClick={() => runComparison({ force: true })}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              Refresh analysis
+            </button>
+          )}
         </div>
       </div>
 
@@ -1204,220 +1233,274 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
               {running ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  {runStep === 1 ? 'Gathering context…' : runStep === 2 ? 'Comparing…' : 'Drafting memo…'}
+                  {runStep === 1 ? 'Gathering context…' : runStep === 2 ? 'Comparing…' : 'Drafting analysis…'}
                 </>
               ) : (
                 <>
-                  <FileText size={16} />
-                  Generate comparison memo
+                  <Scale size={16} />
+                  Generate analysis
                 </>
               )}
             </button>
           </div>
 
+          {/* Analysis workspace — same presentation as AI Assistant analysis */}
           <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3.5">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
-                  <FileText size={15} />
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                  <Bot size={20} />
                 </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-900">Memo</h3>
-                  <p className="text-[11px] text-slate-500">Structured for courtroom and client prep</p>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-[#0f2d5e]">Analysis workspace</h2>
+                  <p className="truncate text-xs text-slate-500">
+                    {running
+                      ? 'Synthesizing response…'
+                      : memo
+                        ? `${meta?.domain ? String(meta.domain).replace(/_/g, ' ') : 'Comparative'} · ${
+                            confidencePct != null ? `${confidencePct}% confidence` : 'Ready'
+                          }`
+                        : 'Results appear here after you generate'}
+                  </p>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {meta?.fromCache && (
-                  <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-200">
-                    From cache
-                  </span>
-                )}
-                {meta?.confidence != null && meta.confidence > 0 && (
-                  <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
-                    Confidence {(Number(meta.confidence) * (meta.confidence <= 1 ? 100 : 1)).toFixed(0)}%
-                  </span>
-                )}
               </div>
             </div>
 
-            <div className="max-h-[540px] flex-1 space-y-4 overflow-y-auto p-5">
+            <div className="max-h-[min(70vh,640px)] min-h-[420px] flex-1 space-y-6 overflow-y-auto p-5">
               {!memo && !running && (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-gradient-to-b from-slate-50 to-white px-5 py-12 text-center">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm ring-1 ring-slate-200">
-                    <BookOpen size={22} />
+                <div className="flex min-h-[360px] flex-col items-center justify-center px-4 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+                    <Scale size={26} />
                   </div>
-                  <p className="mt-4 text-sm font-semibold text-slate-700">Your memo will land here</p>
-                  <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-slate-500">
-                    Select matters, optionally set a focus, then generate. We gather context from each file first —
-                    including large ones — then draft Facts · Issues · Analysis · Conclusion.
+                  <h3 className="mt-4 text-lg font-semibold text-slate-900">Ready when you are</h3>
+                  <p className="mt-2 max-w-sm text-sm text-slate-500">
+                    Place at least two matters on the bench, then generate. You will get the same structured legal
+                    analysis: Facts, Issues, Analysis, and Conclusion.
                   </p>
-                  <div className="mx-auto mt-5 grid max-w-md grid-cols-2 gap-2 text-left">
-                    {sectionCards.map((s) => (
-                      <div key={s.key} className="rounded-lg border border-slate-100 bg-white px-3 py-2">
-                        <p className="text-[11px] font-semibold text-slate-800">{s.label}</p>
-                        <p className="mt-0.5 text-[10px] text-slate-500">{s.hint}</p>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
 
               {running && (
-                <div className="rounded-2xl border border-blue-100 bg-blue-50/40 px-5 py-10">
-                  <div className="flex flex-col items-center text-center">
-                    <Loader2 size={28} className="animate-spin text-blue-700" />
-                    <p className="mt-4 text-sm font-semibold text-[#0f2d5e]">
-                      {runStep === 1
-                        ? 'Reading your matters and gathering context…'
-                        : runStep === 2
-                          ? 'Comparing issues, statutes, and strategy…'
-                          : 'Writing the memo…'}
+                <div className="flex min-h-[320px] flex-col items-center justify-center gap-6">
+                  <div className="relative">
+                    <div className="h-16 w-16 animate-spin rounded-full border-4 border-slate-100 border-t-blue-600" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Scale size={22} className="text-blue-600" />
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-blue-600">
+                      Step {Math.max(1, runStep)} of {runSteps.length}
                     </p>
-                    <p className="mt-1 max-w-sm text-xs leading-relaxed text-slate-600">
+                    <h3 className="mt-2 text-xl font-semibold text-[#0f2d5e]">
+                      {runSteps.find((s) => s.id === runStep)?.label || 'Drafting structured memo'}
+                    </h3>
+                    <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
                       {hasLargeMatter
-                        ? 'One or more matters are large — key facts, legal signals, and closing posture are retained before drafting.'
-                        : 'Working only from the materials you selected on the bench.'}
+                        ? 'Gathering and condensing large matter files, then drafting the comparison.'
+                        : 'Retrieving context and drafting Facts · Issues · Analysis · Conclusion.'}
                     </p>
                   </div>
-                  <ol className="mx-auto mt-6 max-w-xs space-y-2">
-                    {runSteps.map((step) => {
-                      const active = runStep === step.id;
-                      const done = runStep > step.id;
-                      return (
-                        <li
-                          key={step.id}
-                          className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ${
-                            active
-                              ? 'bg-white text-blue-800 shadow-sm ring-1 ring-blue-100'
-                              : done
-                                ? 'text-emerald-700'
-                                : 'text-slate-400'
-                          }`}
-                        >
-                          {done ? (
-                            <CheckCircle2 size={14} className="text-emerald-600" />
-                          ) : active ? (
-                            <Loader2 size={14} className="animate-spin text-blue-600" />
-                          ) : (
-                            <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-slate-300 text-[9px]">
-                              {step.id}
-                            </span>
-                          )}
-                          {step.label}
-                        </li>
-                      );
-                    })}
-                  </ol>
+                  <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full bg-blue-600 transition-all duration-500"
+                      style={{ width: `${(Math.max(1, runStep) / runSteps.length) * 100}%` }}
+                    />
+                  </div>
                   {contextPreview.length > 0 && runStep >= 2 && (
-                    <p className="mt-5 text-center text-[11px] text-slate-500">
+                    <p className="text-center text-[11px] text-slate-500">
                       Context ready for {contextPreview.length} matter
                       {contextPreview.length === 1 ? '' : 's'}
                       {contextPreview.some((c) => c.condensed)
-                        ? ` · ${contextPreview.filter((c) => c.condensed).length} condensed for length`
+                        ? ` · ${contextPreview.filter((c) => c.condensed).length} condensed`
                         : ''}
                     </p>
                   )}
                 </div>
               )}
 
-              {memo && memo.analysis && !memo.facts && !memo.issues && !memo.conclusion && (
-                <div className="rounded-xl border border-slate-200 bg-white p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Full memo</p>
-                  <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-800">
-                    {formatMemoParagraphs(memo.analysis).map((para, i) => (
-                      <p key={i} className="whitespace-pre-wrap">
-                        {para}
-                      </p>
-                    ))}
+              {memo && !running && (
+                <div className="space-y-6">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {meta?.domain && (
+                      <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                        Domain: {String(meta.domain).replace(/_/g, ' ')}
+                      </span>
+                    )}
+                    {confidencePct != null && (
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                        {confidencePct}% confidence
+                      </span>
+                    )}
+                    {meta?.fromCache && (
+                      <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700">
+                        From cache
+                      </span>
+                    )}
+                    {(meta?.cited_cases?.length || 0) +
+                      (meta?.cited_sections?.length || 0) +
+                      (meta?.cited_acts?.length || 0) >
+                      0 && (
+                      <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                        {(meta.cited_cases?.length || 0) +
+                          (meta.cited_sections?.length || 0) +
+                          (meta.cited_acts?.length || 0)}{' '}
+                        authorities
+                      </span>
+                    )}
+                    {meta?.provider && meta.provider !== 'none' && (
+                      <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700">
+                        via {meta.provider}
+                      </span>
+                    )}
                   </div>
-                </div>
-              )}
 
-              {memo && (memo.facts || memo.issues || memo.analysis || memo.conclusion) && (
-                <div className="space-y-3">
                   {meta?.condensedCount > 0 && (
-                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900 ring-1 ring-amber-100">
-                      {meta.condensedCount} large matter{meta.condensedCount === 1 ? ' was' : 's were'} condensed before
-                      drafting. The memo reflects retained lead facts, legal signals, and closing posture — not every
-                      narrative sentence.
-                    </p>
+                    <div className="flex gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+                      <ShieldAlert size={18} className="mt-0.5 shrink-0 text-amber-600" />
+                      <p className="leading-relaxed">
+                        {meta.condensedCount} large matter
+                        {meta.condensedCount === 1 ? ' was' : 's were'} condensed before drafting. Key facts and legal
+                        signals were retained.
+                      </p>
+                    </div>
                   )}
-                  {sectionCards.map((sec) => {
-                    const body = humanizeMemoText(memo[sec.key]);
-                    if (!body) return null;
-                    const paragraphs = formatMemoParagraphs(body);
-                    return (
-                      <article key={sec.key} className={`rounded-xl border p-4 shadow-sm ${sec.tone}`}>
-                        <div className="flex items-baseline justify-between gap-2">
-                          <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] opacity-80">{sec.label}</h4>
-                          <span className="hidden text-[10px] text-slate-500 sm:inline">{sec.hint}</span>
-                        </div>
-                        <div className="mt-2.5 space-y-2.5 text-sm leading-relaxed text-slate-800">
-                          {paragraphs.map((para, i) => {
-                            const isBullet = /^[•\-\*]\s+/.test(para) || /^\d+[.)]\s+/.test(para);
-                            const isLabel = /:\s*$/.test(para) && para.length < 48;
-                            return (
-                              <p
-                                key={i}
-                                className={`whitespace-pre-wrap ${
-                                  isLabel
-                                    ? 'mt-1 text-[11px] font-bold uppercase tracking-wide text-slate-500'
-                                    : isBullet
-                                      ? 'pl-0.5'
-                                      : ''
-                                }`}
-                              >
-                                {para}
-                              </p>
-                            );
-                          })}
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
 
-              {meta && (meta.cited_cases?.length > 0 || meta.cited_sections?.length > 0 || meta.cited_acts?.length > 0) && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Authorities noted</p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {[...(meta.cited_acts || []), ...(meta.cited_sections || []), ...(meta.cited_cases || [])]
-                      .slice(0, 16)
-                      .map((c) => (
-                        <span
-                          key={c}
-                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700"
+                  <section className="space-y-3">
+                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-700">
+                        <Shield size={14} />
+                        Legal analysis
+                      </div>
+                      <div className="flex self-start rounded-lg border border-slate-200 bg-slate-50 p-1">
+                        <button
+                          type="button"
+                          onClick={() => setMemoTab('structured')}
+                          className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            memoTab === 'structured'
+                              ? 'bg-blue-700 text-white'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
                         >
-                          {c}
-                        </span>
-                      ))}
-                  </div>
-                  {meta.disclaimer && (
-                    <p className="mt-3 text-[11px] leading-relaxed text-slate-500">{meta.disclaimer}</p>
-                  )}
-                </div>
-              )}
-
-              {thread.length > 0 && (
-                <div className="space-y-2.5 border-t border-slate-100 pt-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Follow-up</p>
-                  {thread.map((msg, i) => (
-                    <div
-                      key={i}
-                      className={`rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                        msg.role === 'user'
-                          ? 'ml-8 bg-[#0f2d5e] text-white'
-                          : 'mr-6 border border-slate-200 bg-white text-slate-800 shadow-sm'
-                      }`}
-                    >
-                      <div className="space-y-2 whitespace-pre-wrap">
-                        {msg.role === 'ai'
-                          ? formatMemoParagraphs(msg.text).map((p, j) => <p key={j}>{p}</p>)
-                          : msg.text}
+                          Structured
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMemoTab('full')}
+                          className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            memoTab === 'full'
+                              ? 'bg-blue-700 text-white'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          Full text
+                        </button>
                       </div>
                     </div>
-                  ))}
+
+                    {memoTab === 'structured' && hasStructuredSections ? (
+                      <div className="space-y-3">
+                        {Object.entries(ANALYSIS_SECTION_META).map(([key, secMeta]) => {
+                          const body = humanizeMemoText(memo[key]);
+                          if (!body) return null;
+                          return (
+                            <div
+                              key={key}
+                              className={`rounded-xl border p-4 md:p-5 ${secMeta.border} ${secMeta.bg}`}
+                            >
+                              <div
+                                className={`mb-2 text-xs font-bold uppercase tracking-wider ${secMeta.color}`}
+                              >
+                                {secMeta.label}
+                              </div>
+                              <div className="space-y-2.5 text-sm leading-relaxed text-slate-800 md:text-base">
+                                {formatMemoParagraphs(body).map((para, i) => (
+                                  <p key={i} className="whitespace-pre-wrap">
+                                    {para}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : memoTab === 'structured' && !hasStructuredSections ? (
+                      <div className="space-y-3">
+                        <p className="text-xs text-slate-500">
+                          Structured headers were not detected — showing the full analysis below.
+                        </p>
+                        <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+                          <div className="space-y-3 text-sm leading-relaxed text-slate-800 md:text-base">
+                            {formatMemoParagraphs(rawMemo || memo.analysis || '').map((para, i) => (
+                              <p key={i} className="whitespace-pre-wrap">
+                                {para}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+                        <div className="space-y-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-800 md:text-base">
+                          {formatMemoParagraphs(rawMemo || memo.analysis || '').map((para, i) => (
+                            <p key={i}>{para}</p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </section>
+
+                  {meta &&
+                    (meta.cited_cases?.length > 0 ||
+                      meta.cited_sections?.length > 0 ||
+                      meta.cited_acts?.length > 0) && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          Authorities noted
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {[
+                            ...(meta.cited_acts || []),
+                            ...(meta.cited_sections || []),
+                            ...(meta.cited_cases || []),
+                          ]
+                            .slice(0, 16)
+                            .map((c) => (
+                              <span
+                                key={c}
+                                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700"
+                              >
+                                {c}
+                              </span>
+                            ))}
+                        </div>
+                        {meta.disclaimer && (
+                          <p className="mt-3 text-[11px] leading-relaxed text-slate-500">{meta.disclaimer}</p>
+                        )}
+                      </div>
+                    )}
+
+                  {thread.length > 0 && (
+                    <div className="space-y-2.5 border-t border-slate-100 pt-4">
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Follow-up</p>
+                      {thread.map((msg, i) => (
+                        <div
+                          key={i}
+                          className={`rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                            msg.role === 'user'
+                              ? 'ml-8 bg-blue-700 text-white'
+                              : 'mr-6 border border-slate-200 bg-white text-slate-800 shadow-sm'
+                          }`}
+                        >
+                          <div className="space-y-2 whitespace-pre-wrap">
+                            {msg.role === 'ai'
+                              ? formatMemoParagraphs(msg.text).map((p, j) => <p key={j}>{p}</p>)
+                              : msg.text}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1429,8 +1512,8 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
                 disabled={!rawMemo || followBusy}
                 placeholder={
                   rawMemo
-                    ? 'Ask a follow-up — e.g. “What documents should I collect first?”'
-                    : 'Generate a memo first, then ask follow-ups here'
+                    ? 'Ask a follow-up on this analysis…'
+                    : 'Generate analysis first to enable follow-ups'
                 }
                 className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15 disabled:bg-slate-50 disabled:opacity-60"
               />
