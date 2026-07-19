@@ -1,10 +1,11 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
+
+/** Local brand mark (Ashok Stambh / lawyer board art) — always visible offline */
+const LOGO_SRC = '/logo.png?v=2';
 
 /**
  * Site logo + wordmark for sidebars.
- * Prefers hosted brand mark (vakeelbhaiya.com), falls back to /logo.png.
- * Layout: logo on top, VakeelLink underneath (professional stacked mark).
+ * Layout: logo on top, VakeelLink underneath (stacked).
  */
 export default function BrandLogo({
   to = '/',
@@ -13,22 +14,6 @@ export default function BrandLogo({
   stacked = true,
   className = '',
 }) {
-  // Prefer shared brand URL, then local assets
-  const [src, setSrc] = useState('https://vakeelbhaiya.com/x');
-  const [failed, setFailed] = useState(false);
-
-  const handleError = () => {
-    if (src === 'https://vakeelbhaiya.com/x') {
-      setSrc('/logo.svg');
-      return;
-    }
-    if (src === '/logo.svg') {
-      setSrc('/logo.png');
-      return;
-    }
-    setFailed(true);
-  };
-
   const body = (
     <div
       className={`flex min-w-0 ${
@@ -36,22 +21,16 @@ export default function BrandLogo({
       } ${className}`}
     >
       <div
-        className={`relative shrink-0 overflow-hidden rounded-xl bg-white/10 ring-1 ring-white/15 shadow-sm ${
-          stacked ? 'h-12 w-12' : 'h-10 w-10'
+        className={`relative shrink-0 overflow-hidden rounded-xl bg-black/40 ring-1 ring-white/20 shadow-md ${
+          stacked ? 'h-14 w-14' : 'h-11 w-11'
         }`}
       >
-        {!failed ? (
-          <img
-            src={src}
-            alt="VakeelLink"
-            className="h-full w-full object-cover"
-            onError={handleError}
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-500/40 to-blue-800/50 text-lg font-black text-white">
-            V
-          </div>
-        )}
+        <img
+          src={LOGO_SRC}
+          alt="VakeelLink"
+          className="h-full w-full object-cover object-center"
+          draggable={false}
+        />
       </div>
       <div className="min-w-0">
         <div
@@ -75,7 +54,7 @@ export default function BrandLogo({
       <Link
         to={to}
         onClick={onNavigate}
-        className="block outline-none transition opacity-100 hover:opacity-95 focus-visible:ring-2 focus-visible:ring-blue-300/50 rounded-xl"
+        className="block rounded-xl outline-none transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-blue-300/50"
       >
         {body}
       </Link>

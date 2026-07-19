@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Scale, CheckCircle2 } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import './AuthBrandPanel.css';
 
-const CLIENT_IMAGE = '/media/auth-client-judicial.jpg?v=legodesk';
-const LAWYER_IMAGE = '/media/auth-lawyer-judicial.jpg';
+// Hero art from high-court advocate page (Lady Justice) + gavel panel for advocates
+const CLIENT_IMAGE = '/media/auth-high-court.jpg?v=2';
+const LAWYER_IMAGE = '/media/auth-lawyer-alt.jpg?v=2';
+const LOGO_SRC = '/logo.png?v=2';
 
 const COPY = {
   client: {
@@ -127,7 +129,11 @@ export default function AuthBrandPanel({ role = 'client', mode = 'login' }) {
       <img
         className={`auth-brand-img auth-brand-img--active ${imgReady ? 'is-ready' : ''}`}
         src={activeSrc}
-        alt={isLawyer ? 'Courtroom — advocate portal' : 'Lady Justice — Indian judiciary client portal'}
+        alt={
+          isLawyer
+            ? 'Gavel and scales — advocate portal'
+            : 'Lady Justice — high court advocate portal'
+        }
         draggable={false}
       />
       <div className="auth-brand-scrim" aria-hidden />
@@ -135,8 +141,8 @@ export default function AuthBrandPanel({ role = 'client', mode = 'login' }) {
 
       <div className="auth-brand-content">
         <Link to="/" className="auth-brand-logo">
-          <div className="auth-brand-mark">
-            <Scale size={20} />
+          <div className="auth-brand-mark auth-brand-mark--photo">
+            <img src={LOGO_SRC} alt="" draggable={false} />
           </div>
           <span>
             Vakeel<span>Link</span>

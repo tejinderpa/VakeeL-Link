@@ -296,8 +296,8 @@ export default function LandingPage() {
       <nav className={`lp-nav${scrolled ? ' is-scrolled' : ''}`}>
         <div className="lp-nav-inner">
           <Link to="/" className="lp-brand">
-            <div className="lp-brand-mark">
-              <Scale size={18} />
+            <div className="lp-brand-mark lp-brand-mark--photo">
+              <img src="/logo.png?v=2" alt="" />
             </div>
             <span className="lp-brand-name">
               Vakeel<span>Link</span>
@@ -851,8 +851,11 @@ export default function LandingPage() {
           <div className="lp-footer-grid">
             <div className="lp-footer-brand">
               <Link to="/" className="lp-brand">
-                <div className="lp-brand-mark" style={{ width: '2rem', height: '2rem', borderRadius: '0.55rem' }}>
-                  <Scale size={15} />
+                <div
+                  className="lp-brand-mark lp-brand-mark--photo"
+                  style={{ width: '2rem', height: '2rem', borderRadius: '0.55rem' }}
+                >
+                  <img src="/logo.png?v=2" alt="" />
                 </div>
                 <span className="lp-brand-name" style={{ fontSize: '1.05rem' }}>
                   Vakeel<span>Link</span>
