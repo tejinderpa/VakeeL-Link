@@ -6,7 +6,7 @@ import './AuthBrandPanel.css';
 // Hero art from high-court advocate page (Lady Justice) + gavel panel for advocates
 const CLIENT_IMAGE = '/media/auth-high-court.jpg?v=2';
 const LAWYER_IMAGE = '/media/auth-lawyer-alt.jpg?v=2';
-const LOGO_SRC = '/logo.png?v=2';
+const LOGO_SRC = '/advocate.jpg';
 
 const COPY = {
   client: {

@@ -207,7 +207,7 @@ export default function Signup() {
           >
             <Link to="/" className="mb-8 flex items-center gap-2.5 lg:hidden">
               <div className="h-10 w-10 overflow-hidden rounded-lg bg-black ring-1 ring-slate-200 shadow-sm">
-                <img src="/logo.png?v=2" alt="" className="h-full w-full object-cover" />
+                <img src="/advocate.jpg" alt="" className="h-full w-full object-cover" />
               </div>
               <span className="text-lg font-bold text-[#0f2d5e]">
                 Vakeel<span className="text-blue-600">Link</span>

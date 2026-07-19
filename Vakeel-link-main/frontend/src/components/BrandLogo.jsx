@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 
 /** Local brand mark (Ashok Stambh / lawyer board art) — always visible offline */
-const LOGO_SRC = '/logo.png?v=2';
+const LOGO_SRC = '/advocate.jpg';
 
 /**
  * Site logo + wordmark for sidebars.
