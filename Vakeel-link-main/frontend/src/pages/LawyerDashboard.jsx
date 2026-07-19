@@ -89,7 +89,7 @@ function SideNav({
   return (
     <aside className="fixed left-0 top-0 z-[60] flex h-full w-[260px] flex-col border-r border-white/10 bg-[#0f2d5e] text-sm text-slate-200 shadow-xl lg:w-[280px]">
       <div className="shrink-0 border-b border-white/10 px-5 py-4">
-        <BrandLogo to="/dashboard/lawyer" subtitle="Advocate portal" stacked />
+        <BrandLogo to="/dashboard/lawyer" subtitle="Advocate portal" size="md" />
       </div>
 
       <nav className="mt-3 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4">

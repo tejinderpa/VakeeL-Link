@@ -357,14 +357,14 @@
 .lp-brand {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.7rem;
   text-decoration: none;
   color: inherit;
 }
 
 .lp-brand-mark {
-  width: 2.35rem;
-  height: 2.35rem;
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: 0.7rem;
   display: grid;
   place-items: center;
@@ -372,6 +372,7 @@
   background: linear-gradient(145deg, #143974 0%, #0b1f45 100%);
   box-shadow: 0 8px 18px -8px rgba(11, 31, 69, 0.7);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .lp-brand-mark--photo {
@@ -388,10 +389,14 @@
 }
 
 .lp-brand-name {
-  font-size: 1.15rem;
+  font-size: 1.3rem;
   font-weight: 800;
   letter-spacing: -0.03em;
   color: var(--lp-navy-mid);
+  line-height: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .lp-brand-name span {

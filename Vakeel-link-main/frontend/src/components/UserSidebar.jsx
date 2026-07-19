@@ -72,7 +72,7 @@ const UserSidebar = () => {
           <BrandLogo
             to="/"
             subtitle="Client portal"
-            stacked
+            size="md"
             onNavigate={() => setIsOpen(false)}
           />
         </div>

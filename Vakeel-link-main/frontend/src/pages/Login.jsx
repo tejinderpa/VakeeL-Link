@@ -209,11 +209,11 @@ export default function Login() {
               pageReady ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0'
             }`}
           >
-            <Link to="/" className="mb-8 flex items-center gap-2.5 lg:hidden">
-              <div className="h-10 w-10 overflow-hidden rounded-lg bg-black ring-1 ring-slate-200 shadow-sm">
+            <Link to="/" className="mb-8 flex items-center gap-3 lg:hidden">
+              <div className="h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-black ring-1 ring-slate-200 shadow-sm">
                 <img src="/advocate.jpg" alt="" className="h-full w-full object-cover" />
               </div>
-              <span className="text-lg font-bold text-[#0f2d5e]">
+              <span className="flex h-11 items-center text-xl font-black tracking-tight text-[#0f2d5e]">
                 Vakeel<span className="text-blue-600">Link</span>
               </span>
             </Link>
