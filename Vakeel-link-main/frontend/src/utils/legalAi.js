@@ -79,8 +79,190 @@ export async function askLegalAi(query, opts = {}) {
   throw lastError || new Error('Legal research service is unavailable right now. Please try again shortly.');
 }
 
+/**
+ * Convert nested objects / Python-style dict dumps into advocate-readable prose.
+ * Handles real objects and stringified JSON / dict text from the model.
+ */
+export function humanizeMemoText(value, depth = 0) {
+  if (value == null) return '';
+  if (depth > 6) return String(value).trim();
+
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') return String(value);
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => humanizeMemoText(item, depth + 1).trim())
+      .filter(Boolean)
+      .map((line) => {
+        if (line.includes('\n')) return `• ${line}`;
+        if (/^[\d•\-*]+[.)\s]/.test(line)) return line;
+        return `• ${line}`;
+      })
+      .join('\n');
+  }
+
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .map(([rawKey, rawVal]) => {
+        let label = String(rawKey || '')
+          .replace(/[_-]+/g, ' ')
+          .replace(/\bmatter\s*(\d+)\b/gi, 'Matter $1')
+          .trim();
+        if (label) label = label.charAt(0).toUpperCase() + label.slice(1);
+        else label = 'Note';
+        const body = humanizeMemoText(rawVal, depth + 1).trim();
+        if (!body) return '';
+        return body.includes('\n') ? `${label}:\n${body}` : `${label}: ${body}`;
+      })
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  let text = String(value).trim();
+  if (!text) return '';
+
+  // Stringified JSON / Python-ish dict dumps → readable labels
+  if (
+    (text.startsWith('{') && text.includes(':') && text.endsWith('}')) ||
+    (text.startsWith('[') && text.endsWith(']'))
+  ) {
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') {
+        return humanizeMemoText(parsed, depth + 1);
+      }
+    } catch {
+      const loose = parseLooseDictString(text);
+      if (loose) return humanizeMemoText(loose, depth + 1);
+    }
+  }
+
+  // Numbered / bullet prefix before a dict dump: "1. {'Matter 1': ...}"
+  const numberedDict = text.match(/^\s*(?:\d+[.)]\s*|[-•*]\s*)(\{[\s\S]*\})\s*$/);
+  if (numberedDict) {
+    const loose = parseLooseDictString(numberedDict[1]);
+    if (loose) return humanizeMemoText(loose, depth + 1);
+  }
+
+  text = text.replace(/\\n/g, '\n').replace(/\\t/g, ' ');
+  // Soft-clean leftover dict noise mid-paragraph
+  if (text.includes("{'") || text.includes('{"') || text.includes("': '") || text.includes('": "')) {
+    const loose = parseLooseDictString(text.match(/\{[\s\S]*\}/)?.[0] || '');
+    if (loose) return humanizeMemoText(loose, depth + 1);
+  }
+  text = text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+  return text.trim();
+}
+
+/**
+ * Best-effort parse of Python-style / messy dict strings from the LLM.
+ * Extracts 'key': 'value' pairs without full JSON (handles apostrophes in prose).
+ */
+function parseLooseDictString(raw) {
+  const text = String(raw || '').trim();
+  if (!text.startsWith('{') || !text.includes(':')) return null;
+
+  const obj = {};
+  // Match key then value until next ', 'key' or end
+  const keyRe = /['"]([^'"]+)['"]\s*:\s*/g;
+  let match;
+  const keys = [];
+  while ((match = keyRe.exec(text)) !== null) {
+    keys.push({ key: match[1], index: match.index, end: match.index + match[0].length });
+  }
+  if (!keys.length) return null;
+
+  for (let i = 0; i < keys.length; i += 1) {
+    const start = keys[i].end;
+    const end = i + 1 < keys.length ? keys[i + 1].index : text.lastIndexOf('}');
+    let slice = text.slice(start, end > start ? end : undefined).trim();
+    // Strip trailing comma / brace
+    slice = slice.replace(/^\s*\[/, '[').replace(/,?\s*$/, '');
+    slice = slice.replace(/,\s*$/, '').replace(/\}$/, '').trim();
+
+    if ((slice.startsWith("'") && slice.endsWith("'")) || (slice.startsWith('"') && slice.endsWith('"'))) {
+      slice = slice.slice(1, -1);
+    }
+    // List of strings
+    if (slice.startsWith('[') && slice.endsWith(']')) {
+      const items = [];
+      const itemRe = /['"]((?:\\.|[^'"])*)['"]/g;
+      let im;
+      while ((im = itemRe.exec(slice)) !== null) items.push(im[1]);
+      obj[keys[i].key] = items.length ? items : slice;
+    } else {
+      obj[keys[i].key] = slice.replace(/\\'/g, "'").replace(/\\"/g, '"').trim();
+    }
+  }
+  return Object.keys(obj).length ? obj : null;
+}
+
+/** Split humanized memo body into short paragraphs for the UI. */
+export function formatMemoParagraphs(text = '') {
+  const raw = humanizeMemoText(text);
+  if (!raw) return [];
+  let parts = raw
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  // Keep bullet lines as separate visual blocks when packed in one paragraph
+  if (parts.length === 1 && /(?:^|\n)\s*[•\-\*]\s+/.test(parts[0])) {
+    parts = parts[0]
+      .split(/\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+  }
+
+  if (parts.length === 1 && parts[0].length > 280 && !parts[0].includes('\n')) {
+    const sentences = parts[0].match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [parts[0]];
+    const chunks = [];
+    let buf = '';
+    sentences.forEach((s) => {
+      const next = `${buf} ${s}`.trim();
+      if (next.length > 200 && buf) {
+        chunks.push(buf);
+        buf = s.trim();
+      } else {
+        buf = next;
+      }
+    });
+    if (buf) chunks.push(buf);
+    parts = chunks;
+  }
+
+  return parts.map((p) => p.replace(/[ \t]+/g, ' ').trim()).filter(Boolean);
+}
+
 export function normalizeAiResponse(data = {}) {
-  const analysis = String(data.analysis || data.answer || data.summary || data.response || '').trim();
+  // Prefer structured fields when present (backend sometimes returns them raw)
+  let analysis = data.analysis ?? data.answer ?? data.summary ?? data.response ?? '';
+  if (
+    data.facts ||
+    data.issues ||
+    (typeof data.analysis === 'object' && data.analysis) ||
+    data.conclusion
+  ) {
+    const built = [
+      data.facts != null ? `Facts:\n${humanizeMemoText(data.facts)}` : '',
+      data.issues != null ? `Issues:\n${humanizeMemoText(data.issues)}` : '',
+      data.analysis != null
+        ? `Analysis:\n${humanizeMemoText(
+            typeof data.analysis === 'object' && !Array.isArray(data.analysis)
+              ? data.analysis
+              : data.analysis
+          )}`
+        : '',
+      data.conclusion != null ? `Conclusion:\n${humanizeMemoText(data.conclusion)}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    if (built.trim()) analysis = built;
+  }
+
+  analysis = humanizeMemoText(analysis);
+
   const citedCases = Array.isArray(data.cited_cases)
     ? data.cited_cases
     : Array.isArray(data.citations)
@@ -94,8 +276,8 @@ export function normalizeAiResponse(data = {}) {
   return {
     ...data,
     analysis,
-    answer: String(data.answer || analysis).trim(),
-    summary: String(data.summary || analysis).trim(),
+    answer: humanizeMemoText(data.answer || analysis),
+    summary: humanizeMemoText(data.summary || analysis),
     domain: data.domain || 'general',
     cited_cases: citedCases,
     cited_sections: Array.isArray(data.cited_sections) ? data.cited_sections : [],
@@ -318,6 +500,12 @@ export function buildComparisonPrompt({ cases = [], focus = '', mode = 'full' } 
     'Compare the matters carefully. Ground every point in the provided context or well-known Indian statutory framework.',
     'Do NOT invent court holdings, party admissions, or documents that are not supported by the materials below.',
     '',
+    'CRITICAL OUTPUT FORMAT:',
+    '- Write PLAIN READABLE ENGLISH under each heading — like a brief you would email to a co-counsel.',
+    '- Do NOT use JSON, Python dicts, curly braces, key-value maps, or nested objects in the body.',
+    '- Do NOT write things like {\'Matter 1\': \'...\'} or {"similarities": [...]} — use full sentences and bullets instead.',
+    '- Under each heading use short paragraphs and lines starting with "• " or "1. ", "2. ".',
+    '',
     focusLine,
     '',
     largeNote,
@@ -327,23 +515,24 @@ export function buildComparisonPrompt({ cases = [], focus = '', mode = 'full' } 
     'Structure your answer EXACTLY with these headings (use the labels as shown):',
     '',
     'Facts:',
-    '- Neutral synthesis of each matter (short bullets, label Matter 1 / Matter 2…)',
-    '- Call out overlapping vs distinct factual themes',
+    'Write 1–2 short paragraphs or bullets for each matter, e.g.:',
+    '• Matter 1 (title): …',
+    '• Matter 2 (title): …',
+    'Then one line on overlapping vs distinct facts.',
     '',
     'Issues:',
-    '- Legal issues / questions of law that are common',
-    '- Issues unique to each matter',
+    'Numbered plain-English legal questions. Group as:',
+    '• Common: …',
+    '• Matter 1 only: …',
+    '• Matter 2 only: …',
     '',
     'Analysis:',
-    '- Side-by-side comparison: similarities and differences',
-    '- Applicable statutes / sections under Indian law',
-    '- Precedents only if well-known or clearly implied by the materials',
-    '- Evidentiary strengths and weaknesses',
-    '- Forum / jurisdiction notes where relevant',
+    'Full prose paragraphs covering: similarities; differences; applicable statutes/sections;',
+    'precedents only if well-known; evidence strengths/weaknesses; forum/jurisdiction.',
+    'Use sub-labels in plain text like "Similarities:" then bullets — never nested JSON.',
     '',
     'Conclusion:',
-    '- Recommended strategy (settlement vs contested posture where apt)',
-    '- Concrete next steps and document checklist for the advocate',
+    'Recommended strategy for each matter, concrete next steps this week, and a short document checklist.',
     '',
     'Write in clear professional English suitable for an advocate brief. Prefer practical guidance over theory.',
     'If context for a matter is thin, say so under Facts and still produce the best comparative analysis possible from what you have.',
@@ -384,7 +573,7 @@ export function buildComparisonFollowUpPrompt({
 
 /** Split AI memo into Facts / Issues / Analysis / Conclusion when present. */
 export function parseComparisonMemo(text = '') {
-  const raw = String(text || '').trim();
+  const raw = humanizeMemoText(text);
   if (!raw) return null;
   if (!/(Facts|Issues|Analysis|Conclusion)\s*:/i.test(raw)) {
     return { analysis: raw };
@@ -397,7 +586,7 @@ export function parseComparisonMemo(text = '') {
     const m = part.match(/^\s*#*\s*(Facts|Issues|Analysis|Conclusion)\s*:?\s*([\s\S]*)$/i);
     if (!m) return;
     const key = m[1].toLowerCase();
-    const body = (m[2] || '').trim();
+    const body = humanizeMemoText((m[2] || '').trim());
     if (key in sections) sections[key] = body;
   });
 

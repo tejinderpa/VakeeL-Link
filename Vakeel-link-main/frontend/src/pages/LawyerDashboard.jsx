@@ -30,7 +30,9 @@ import {
   askLegalAi,
   buildComparisonFollowUpPrompt,
   buildComparisonPrompt,
+  formatMemoParagraphs,
   gatherComparisonContexts,
+  humanizeMemoText,
   parseComparisonMemo,
 } from '../utils/legalAi';
 import {
@@ -675,8 +677,10 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
 
   const loadCachedMemo = (entry) => {
     if (!entry) return;
-    setRawMemo(entry.rawMemo || '');
-    setMemo(entry.memo || parseComparisonMemo(entry.rawMemo || ''));
+    const raw = humanizeMemoText(entry.rawMemo || '');
+    setRawMemo(raw);
+    // Re-parse so older cached dict dumps become readable prose
+    setMemo(parseComparisonMemo(raw) || entry.memo);
     setMeta(entry.meta || { fromCache: true });
     setThread([]);
     if (Array.isArray(entry.matterIds) && entry.matterIds.length) {
@@ -699,8 +703,9 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
         focus
       );
       if (cached?.rawMemo) {
-        setRawMemo(cached.rawMemo);
-        setMemo(cached.memo || parseComparisonMemo(cached.rawMemo));
+        const raw = humanizeMemoText(cached.rawMemo);
+        setRawMemo(raw);
+        setMemo(parseComparisonMemo(raw));
         setMeta({ ...(cached.meta || {}), fromCache: true });
         setThread([]);
         setError('');
@@ -1319,7 +1324,7 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Full memo</p>
                   <div className="mt-3 space-y-3 text-sm leading-relaxed text-slate-800">
-                    {formatReadableText(memo.analysis).map((para, i) => (
+                    {formatMemoParagraphs(memo.analysis).map((para, i) => (
                       <p key={i} className="whitespace-pre-wrap">
                         {para}
                       </p>
@@ -1338,20 +1343,34 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
                     </p>
                   )}
                   {sectionCards.map((sec) => {
-                    const body = memo[sec.key];
+                    const body = humanizeMemoText(memo[sec.key]);
                     if (!body) return null;
+                    const paragraphs = formatMemoParagraphs(body);
                     return (
                       <article key={sec.key} className={`rounded-xl border p-4 shadow-sm ${sec.tone}`}>
                         <div className="flex items-baseline justify-between gap-2">
                           <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] opacity-80">{sec.label}</h4>
                           <span className="hidden text-[10px] text-slate-500 sm:inline">{sec.hint}</span>
                         </div>
-                        <div className="mt-2.5 space-y-2.5 text-sm leading-relaxed">
-                          {formatReadableText(body).map((para, i) => (
-                            <p key={i} className="whitespace-pre-wrap">
-                              {para}
-                            </p>
-                          ))}
+                        <div className="mt-2.5 space-y-2.5 text-sm leading-relaxed text-slate-800">
+                          {paragraphs.map((para, i) => {
+                            const isBullet = /^[•\-\*]\s+/.test(para) || /^\d+[.)]\s+/.test(para);
+                            const isLabel = /:\s*$/.test(para) && para.length < 48;
+                            return (
+                              <p
+                                key={i}
+                                className={`whitespace-pre-wrap ${
+                                  isLabel
+                                    ? 'mt-1 text-[11px] font-bold uppercase tracking-wide text-slate-500'
+                                    : isBullet
+                                      ? 'pl-0.5'
+                                      : ''
+                                }`}
+                              >
+                                {para}
+                              </p>
+                            );
+                          })}
                         </div>
                       </article>
                     );
@@ -1392,7 +1411,11 @@ function CaseComparisonsSection({ localCases = [], consultations = [], onToast }
                           : 'mr-6 border border-slate-200 bg-white text-slate-800 shadow-sm'
                       }`}
                     >
-                      {msg.text}
+                      <div className="space-y-2 whitespace-pre-wrap">
+                        {msg.role === 'ai'
+                          ? formatMemoParagraphs(msg.text).map((p, j) => <p key={j}>{p}</p>)
+                          : msg.text}
+                      </div>
                     </div>
                   ))}
                 </div>

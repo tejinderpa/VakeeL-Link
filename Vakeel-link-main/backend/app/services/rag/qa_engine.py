@@ -132,31 +132,123 @@ class LegalQAEngine:
                 out.append(text)
         return out
 
-    @staticmethod
-    def _coerce_prose(value: Any) -> str:
-        """Normalize LLM fields that sometimes arrive as lists."""
+    @classmethod
+    def _coerce_prose(cls, value: Any, *, depth: int = 0) -> str:
+        """
+        Normalize LLM fields that arrive as strings, lists, or nested dicts
+        into advocate-readable prose (never Python/JSON dump).
+        """
         if value is None:
             return ""
+        if depth > 6:
+            return str(value).strip()
+
+        if isinstance(value, bool):
+            return "Yes" if value else "No"
+        if isinstance(value, (int, float)):
+            return str(value)
+
         if isinstance(value, list):
-            lines = []
-            for i, item in enumerate(value, 1):
-                text = str(item).strip()
+            lines: List[str] = []
+            for item in value:
+                text = cls._coerce_prose(item, depth=depth + 1).strip()
                 if not text:
                     continue
-                if not re.match(r"^\d+[\).\s]", text):
-                    text = f"{i}. {text}"
-                lines.append(text)
+                if "\n" in text:
+                    lines.append(f"• {text}")
+                elif not re.match(r"^[\d•\-\*]+[\).\s]", text):
+                    lines.append(f"• {text}")
+                else:
+                    lines.append(text)
             return "\n".join(lines)
-        return str(value).strip()
+
+        if isinstance(value, dict):
+            blocks: List[str] = []
+            for raw_key, raw_val in value.items():
+                key = str(raw_key or "").strip()
+                # Human labels: matter_1 → Matter 1, common → Common issues
+                label = re.sub(r"[_\-]+", " ", key).strip()
+                label = re.sub(r"\bmatter\s*(\d+)\b", r"Matter \1", label, flags=re.I)
+                label = label[:1].upper() + label[1:] if label else "Note"
+                body = cls._coerce_prose(raw_val, depth=depth + 1).strip()
+                if not body:
+                    continue
+                if "\n" in body:
+                    blocks.append(f"{label}:\n{body}")
+                else:
+                    blocks.append(f"{label}: {body}")
+            return "\n\n".join(blocks)
+
+        text = str(value).strip()
+        if not text:
+            return ""
+
+        # Stringified JSON / Python-ish dict dumped by the model
+        if (text.startswith("{") and text.endswith("}")) or (
+            text.startswith("[") and text.endswith("]")
+        ):
+            try:
+                import ast
+
+                parsed = None
+                try:
+                    parsed = json.loads(text)
+                except Exception:
+                    try:
+                        parsed = ast.literal_eval(text)
+                    except Exception:
+                        parsed = None
+                if isinstance(parsed, (dict, list)):
+                    return cls._coerce_prose(parsed, depth=depth + 1)
+            except Exception:
+                pass
+
+        # Unescape common escaped newlines from JSON strings
+        text = text.replace("\\n", "\n").replace("\\t", " ")
+        text = re.sub(r"[ \t]+\n", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
 
     @classmethod
     def _format_structured_summary(cls, parsed: Dict[str, Any], fallback: str = "") -> str:
-        """Prefer explicit section fields; fall back to free-form summary."""
+        """Prefer explicit section fields as readable prose; fall back to free-form summary."""
         facts = cls._coerce_prose(parsed.get("facts"))
         issues = cls._coerce_prose(parsed.get("issues"))
         analysis = cls._coerce_prose(parsed.get("analysis"))
         conclusion = cls._coerce_prose(parsed.get("conclusion"))
         summary = cls._coerce_prose(parsed.get("summary"))
+
+        # If analysis itself is nested under sub-keys in the root object
+        if not analysis and any(
+            k in parsed
+            for k in (
+                "similarities",
+                "differences",
+                "applicable statutes",
+                "applicable_statutes",
+                "precedents",
+            )
+        ):
+            analysis = cls._coerce_prose(
+                {
+                    k: parsed[k]
+                    for k in parsed
+                    if k
+                    not in {
+                        "domain",
+                        "facts",
+                        "issues",
+                        "analysis",
+                        "conclusion",
+                        "summary",
+                        "cited_sections",
+                        "cited_cases",
+                        "cited_acts",
+                        "confidence_score",
+                        "disclaimer",
+                    }
+                }
+            )
 
         if facts or issues or analysis or conclusion:
             parts: List[str] = []
@@ -179,9 +271,9 @@ class LegalQAEngine:
                     f"{label}:",
                     normalized,
                 )
-            return normalized.strip()
+            return cls._coerce_prose(normalized).strip()
 
-        return (fallback or "").strip()
+        return cls._coerce_prose(fallback or "").strip()
 
     def _build_citations_from_chunks(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Always produce citation cards from retrieved chunks (primary source of truth)."""
@@ -672,21 +764,23 @@ class LegalQAEngine:
             "Return STRICT JSON with keys:\n"
             "  domain (string; one of legal_constitutional, legal_criminal, legal_consumer, "
             "legal_family, legal_labour, legal_motor_accident, or general),\n"
-            "  facts (string; 2-5 sentences restating the client's situation in legal terms),\n"
-            "  issues (string; numbered legal questions raised),\n"
-            "  analysis (string; 4-8 sentences applying law from context; cite sources as [C1], [C2], …),\n"
-            "  conclusion (string; clear next steps and remedies),\n"
+            "  facts (STRING only — plain readable paragraphs or numbered lines; NEVER a JSON object/dict),\n"
+            "  issues (STRING only — numbered legal questions in plain English; NEVER nested objects),\n"
+            "  analysis (STRING only — full paragraphs of side-by-side legal analysis; NEVER nested objects),\n"
+            "  conclusion (STRING only — strategy and next steps in plain English; NEVER nested objects),\n"
             "  summary (string; short 2-4 sentence overview),\n"
             "  cited_sections (array of strings),\n"
             "  cited_cases (array of strings),\n"
             "  cited_acts (array of strings),\n"
             "  confidence_score (number 0-1).\n\n"
             "RULES:\n"
-            "1. Put real substance in facts/issues/analysis/conclusion — not one-liners.\n"
-            "2. When you rely on a chunk, mark it with [C1]…[Cn] matching the context headers.\n"
-            "3. cited_* arrays must ONLY contain items that appear in the context chunks.\n"
-            "4. If context is thin or weakly related, say so, set confidence_score ≤ 0.45, and give cautious steps.\n"
-            "5. Return ONLY valid JSON — no markdown fences, no prose outside JSON."
+            "1. facts, issues, analysis, conclusion MUST be plain human-readable strings "
+            "(use newlines and bullet lines like '• ' or '1. '). Do NOT put dicts/maps/objects inside them.\n"
+            "2. For comparisons, write e.g. 'Matter 1 (Sharma): …\\nMatter 2 (Mehta): …' as prose, not as JSON keys.\n"
+            "3. When you rely on a chunk, mark it with [C1]…[Cn] matching the context headers.\n"
+            "4. cited_* arrays must ONLY contain items that appear in the context chunks.\n"
+            "5. If context is thin or weakly related, say so, set confidence_score ≤ 0.45, and give cautious steps.\n"
+            "6. Return ONLY valid JSON — no markdown fences, no prose outside JSON."
         )
         user_msg = (
             f"USER QUERY:\n{query}\n\n"
